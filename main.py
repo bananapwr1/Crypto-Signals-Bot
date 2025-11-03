@@ -25,8 +25,8 @@ warnings.filterwarnings('ignore')
 load_dotenv()
 matplotlib.use('Agg')
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
+BOT_TOKEN = os.getenv("8218904195:AAGinuQn0eGe8qYm-P5EOPwVq3awPyJ5fD8", "YOUR_BOT_TOKEN_HERE")
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "7746862973"))
 SUPPORT_CONTACT = "@banana_pwr"
 
 # Московский часовой пояс (UTC+3)
