@@ -1,0 +1,44 @@
+# 
+# amvera.yaml - Конфигурационный файл для Python Telegram Bot
+#
+meta:
+  name: crypto-signals-bot
+
+build:
+  # Используем среду Python
+  type: python
+  
+  # Используем указанную вами версию
+  version: 3.10 
+  
+  # Команда для установки зависимостей. 
+  # Требует наличия requirements.txt в корне проекта.
+  install: pip install -r requirements.txt
+
+run:
+  # Команда запуска главного скрипта. 
+  # Убедитесь, что main.py запускает бота в цикле (polling или webhook) и не завершается.
+  command: python main.py
+  
+  # Хотя бот работает через Polling, Amvera часто требует указания порта.
+  port: 8080 
+
+# --- Дополнительные настройки (рекомендуются) ---
+# env:
+#   # Если вы хотите управлять настройками Amvera через конфигурацию:
+#   # Переменные окружения, которые будут доступны вашему приложению.
+#   # ВАЖНО: Секретные ключи (токены) лучше вводить в интерфейсе Amvera.
+#   # Если вы все же хотите их здесь, используйте: 
+#   # BOT_TOKEN: 8218904195:AAGinuQn0eGe8qYm-P5EOPwVq3awPyJ5fD8
+#   # ADMIN_USER_ID: 7746862973 # ИЛИ ИСПОЛЬЗУЙТЕ ВАШ АДМИН ID
+#   
+#   # Пример других env-переменных, если они не являются секретными:
+#   SUPPORT_CONTACT: "@banana_pwr"
+#   POCKET_OPTION_REF_LINK: "https://pocket-friends.com/r/ugauihalod"
+#   PROMO_CODE: "FRIENDUGAUIHALOD"
+
+# health:
+#   # Настройка проверки работоспособности (опционально)
+#   # type: http
+#   # endpoint: /health # Если у вашего бота есть HTTP-эндпоинт
+#   # initialDelay: 30
