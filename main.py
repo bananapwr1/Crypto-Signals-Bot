@@ -1,295 +1,234 @@
+# main.py (Чистый интерфейс для Bothost.ru)
+# В этом файле оставлены только обработчики команд и кнопок.
+# Вся логика, требующая БД (Supabase) или аналитики (pandas, numpy), заменена заглушками (STUB).
+
 import os
 import logging
-import asyncio
 from datetime import datetime, timedelta, timezone
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, ParseMode
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from dotenv import load_dotenv
-import warnings
-import uuid
 
-# --- 1. ОЧИЩЕННЫЕ ИМПОРТЫ ---
-warnings.filterwarnings('ignore')
-load_dotenv()
-
-# --- 2. КОНФИГУРАЦИЯ И ПРОВЕРКА ТОКЕНА (Улучшенная диагностика) ---
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
-SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "@banana_pwr")
-
-# Настройка логирования
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+# --- Настройка Логирования ---
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
-# ПРОВЕРКА КРИТИЧЕСКИХ ДАННЫХ
-if not BOT_TOKEN:
-    logger.error("❌ BOT_TOKEN не найден. Проверьте переменные окружения на хостинге.")
-    # Вывод этой строки в лог поможет вам понять, что ошибка не в коде.
-else:
-    # Выводим первые 4 символа токена для подтверждения, что он считался
-    logger.info(f"✅ Токен считан. Начало токена: {BOT_TOKEN[:4]}...")
+# --- Загрузка переменных окружения ---
+load_dotenv()
 
+# Используем переменные, адаптированные под предоставленный .env
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", 0)) 
+SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+SUPABASE_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
 
-# Московский часовой пояс (UTC+3)
+# --- Константы ---
+SUPPORT_CONTACT = "@banana_pwr"
 MOSCOW_TZ = timezone(timedelta(hours=3))
 POCKET_OPTION_REF_LINK = "https://pocket-friends.com/r/ugauihalod"
 PROMO_CODE = "FRIENDUGAUIHALOD"
 
-# Команды бота по умолчанию
+# Команды бота (для установки меню)
 DEFAULT_BOT_COMMANDS = [
     ("start", "🏠 Главное меню"),
-    ("plans", "💎 Тарифы и подписки"),
-    ("bank", "💰 Управление банком"),
-    ("autotrade", "🤖 Автоторговля"),
-    ("signals", "🚀 Сигналы Short/Long"),
-    ("faq", "❓ Помощь"),
+    ("status", "📊 Текущий статус"),
+    ("signals", "⚡️ Получить сигнал"),
+    ("admin", "🔑 Админ-панель (для администратора)")
 ]
 
-# --- 3. ЗАГЛУШКИ (STUBS) для ЯДРА и БД (КОД ОСТАВЛЕН БЕЗ ИЗМЕНЕНИЙ) ---
+# --- Функции-Заглушки для БД (будут заменены на реальную логику Supabase) ---
 
-async def check_user_access(update: Update, context: ContextTypes.DEFAULT_TYPE, required_level="any") -> bool:
-    """Заглушка для проверки прав доступа пользователя."""
-    if update.effective_user.id == ADMIN_USER_ID:
-        return True 
-    if required_level == "admin":
-        await update.message.reply_text("⛔ Доступно только администраторам (STUB).")
-        return False
-    return True
+def check_or_create_user_stub(user_id, username):
+    """
+    STUB: Имитация проверки/создания пользователя в базе данных.
+    Всегда возвращает True для запуска интерфейса.
+    """
+    logger.info(f"DB STUB: Проверка/создание пользователя {user_id} - {username}. Успешно.")
+    return True 
 
-async def check_or_create_user(user_id: int, username: str) -> None:
-    """Заглушка для создания/обновления пользователя в базе данных."""
-    logger.info(f"DB STUB: Проверка/создание пользователя {user_id} - {username}")
-    pass
+def get_user_status_stub(user_id):
+    """
+    STUB: Имитация получения статуса пользователя.
+    Возвращает фиктивные данные для отображения.
+    """
+    logger.info(f"DB STUB: Запрос статуса для {user_id}")
+    return {
+        'subscription_active': True,
+        'subscription_end': datetime.now(MOSCOW_TZ) + timedelta(days=30),
+        'signals_today': 5,
+        'signals_limit': 10,
+        'bank_balance': 1000.00
+    }
 
-async def reset_user_stats_stub(user_id: int):
-    """Заглушка для сброса статистики пользователя."""
-    logger.info(f"DB STUB: Сброс статистики пользователя {user_id}.")
-    return True
-
-# --- 4. ОБРАБОТЧИКИ ПОЛЬЗОВАТЕЛЬСКИХ КОМАНД (Интерфейс) ---
+# --- Обработчики Команд ---
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await check_or_create_user(update.effective_user.id, update.effective_user.username)
+    user = update.effective_user
     
+    # Заглушка: имитируем проверку пользователя
+    if not check_or_create_user_stub(user.id, user.username):
+        await update.message.reply_text("Произошла ошибка при регистрации. Пожалуйста, попробуйте позже.")
+        return
+
     keyboard = [
-        [InlineKeyboardButton("Сигналы Short 🚀", callback_data='signals_short'), 
-         InlineKeyboardButton("Сигналы Long 📈", callback_data='signals_long')],
-        [InlineKeyboardButton("Автоторговля 🤖", callback_data='autotrade_menu'), 
-         InlineKeyboardButton("Мои сделки 📊", callback_data='my_deals')],
-        [InlineKeyboardButton("Тарифы 💎", callback_data='plans'), 
-         InlineKeyboardButton("Помощь ❓", callback_data='faq')]
+        [InlineKeyboardButton("⚡️ Получить сигнал (STUB)", callback_data='get_signal')],
+        [InlineKeyboardButton("📊 Статус и баланс (STUB)", callback_data='status')],
+        [InlineKeyboardButton("💰 Пополнить / Тарифы (STUB)", callback_data='plans')],
+        [InlineKeyboardButton("🔑 Админ-панель (STUB)", callback_data='admin')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        '🏠 Привет, я Crypto Signals Bot! Выберите действие:',
+
+    await update.message.reply_html(
+        f"👋 Добро пожаловать, {user.mention_html()}!\n\n"
+        "Ваш интерфейс Crypto Signals Bot запущен.\n"
+        "⚠️ Текущая версия - **ЧИСТЫЙ ИНТЕРФЕЙС**. "
+        "Для работы с реальными данными необходима **Фаза 3: Интеграция с Supabase**.",
         reply_markup=reply_markup
     )
 
-async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Ваша логика меню сигналов
-    await update.message.reply_text("🚀 Сигналы (STUB): Выберите Short или Long в меню.")
-
-async def autotrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Ваша логика автоторговли
-    await update.message.reply_text("🤖 Автоторговля (STUB): Функционал ядра отключен. Нужна интеграция с Pocket Option и Supabase.")
-
-async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Ваша логика тарифов
-    keyboard = [
-        [InlineKeyboardButton("Short Plan", callback_data='buy_short')],
-        [InlineKeyboardButton("Long Plan", callback_data='buy_long')],
-        [InlineKeyboardButton("VIP Plan", callback_data='buy_vip')],
-        [InlineKeyboardButton("Назад", callback_data='start')]
-    ]
-    await update.message.reply_text("💎 Выберите тарифный план (STUB):", reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def bank_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Ваша логика управления банком
-    await update.message.reply_text("💰 Управление банком (STUB): Баланс: $0.00. Добавьте свои данные через настройки.")
-
-async def faq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("❓ Помощь (STUB): Свяжитесь с поддержкой: @banana_pwr")
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await faq_command(update, context)
-
-# --- 5. ОБРАБОТЧИКИ АДМИН-КОМАНД (Ваша Админ-Панель) ---
-
-async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await check_user_access(update, context, "admin"): return
-    await update.message.reply_text("📢 Рассылка (STUB): Функционал рассылки отключен, требуется база данных.")
-
-async def send_promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await check_user_access(update, context, "admin"): return
-    await update.message.reply_text("🎁 Отправить промокод (STUB): Нужна БД для генерации.")
-
-async def statistics_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await check_user_access(update, context, "admin"): return
-    await update.message.reply_text("📊 Статистика (STUB): Всего пользователей: 0. Активных: 0. Требуется БД.")
-
-async def reset_me_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
-    if await reset_user_stats_stub(user_id):
-        await update.message.reply_text("♻️ Ваша статистика успешно сброшена (STUB).")
-    else:
-        await update.message.reply_text("❌ Ошибка сброса (STUB).")
-
-async def reset_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await check_user_access(update, context, "admin"): return
-    if not context.args:
-        await update.message.reply_text("Использование: /reset_user [user_id]")
-        return
+    status_data = get_user_status_stub(user_id)
     
-    try:
-        user_id = int(context.args[0])
-        if await reset_user_stats_stub(user_id):
-            await update.message.reply_text(f"♻️ Статистика пользователя {user_id} сброшена (STUB).")
-        else:
-            await update.message.reply_text(f"❌ Ошибка сброса пользователя {user_id} (STUB).")
-    except ValueError:
-        await update.message.reply_text("Неверный формат ID.")
+    status_text = (
+        "📊 **ВАШ СТАТУС (STUB)**\n"
+        "-------------------------------------\n"
+        f"💳 Подписка: {'✅ Активна' if status_data['subscription_active'] else '❌ Не активна'}\n"
+        f"📅 Срок истечения: {status_data['subscription_end'].strftime('%d.%m.%Y %H:%M MSK')}\n"
+        f"📈 Сигналов сегодня: {status_data['signals_today']} из {status_data['signals_limit']}\n"
+        f"💰 Баланс банка: {status_data['bank_balance']:.2f} USDT (STUB)\n"
+    )
+    await update.message.reply_markdown(status_text)
 
-# --- ОСТАЛЬНЫЕ КОМАНДЫ АДМИНКИ (Заглушки) ---
-async def manage_promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_user_access(update, context, "admin"): return
-    await update.message.reply_text("🔑 Управление промокодами (STUB): Функционал отключен.")
+async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("⚡️ **Получить сигнал:** Эта функция требует интеграции с ядром аналитики. Пока это заглушка (STUB).")
 
-async def disable_payments_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_user_access(update, context, "admin"): return
-    await update.message.reply_text("💳 Отключение платежей (STUB): Функционал отключен.")
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    if user_id != ADMIN_USER_ID:
+        await update.message.reply_text("❌ У вас нет прав администратора.")
+        return
 
-async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_user_access(update, context, "admin"): return
-    await update.message.reply_text("➕ Добавить админа (STUB): Функционал отключен.")
+    keyboard = [
+        [InlineKeyboardButton("Сброс статистики пользователя (STUB)", callback_data='admin_reset_user')],
+        [InlineKeyboardButton("Сброс всех пользователей (STUB)", callback_data='admin_reset_all')],
+        [InlineKeyboardButton("Статистика DB (STUB)", callback_data='admin_stats')],
+        [InlineKeyboardButton("Назад в меню", callback_data='start')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text("🔑 **Админ-панель (STUB)**\nЗдесь вы можете управлять пользователями и статистикой.", reply_markup=reply_markup)
 
-async def remove_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_user_access(update, context, "admin"): return
-    await update.message.reply_text("➖ Удалить админа (STUB): Функционал отключен.")
 
-async def set_reviews_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_user_access(update, context, "admin"): return
-    await update.message.reply_text("💬 Установить группу для отзывов (STUB): Функционал отключен.")
-
-async def ban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_user_access(update, context, "admin"): return
-    await update.message.reply_text("🔨 Забанить пользователя (STUB): Функционал отключен.")
-
-async def unban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_user_access(update, context, "admin"): return
-    await update.message.reply_text("✅ Разбанить пользователя (STUB): Функционал отключен.")
-
-# --- 6. ОБРАБОТЧИКИ СООБЩЕНИЙ и КНОПОК ---
-
-async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Ваша логика обработки промокодов
-    if not update.message.text.startswith('/'):
-        await update.message.reply_text(f"Получено текстовое сообщение (STUB): '{update.message.text}'.")
-    pass
-
-async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Ваша логика обработки фото
-    await update.message.reply_text("Получено фото (STUB): Логика обработки отключена.")
-    pass
+# --- Обработчик Кнопок (CallbackQuery) ---
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
     
     data = query.data
-    
+    user_id = query.from_user.id
+
     if data == 'start':
+        # Перезапуск команды start для обновления меню
         await start_command(query, context)
+        
+    elif data == 'status':
+        # Перезапуск команды status
+        await status_command(query, context)
+        
+    elif data == 'admin':
+        # Перезапуск команды admin
+        await admin_command(query, context)
+
+    # --- Обработка Админ-кнопок ---
+    elif data == 'admin_reset_user':
+        if user_id == ADMIN_USER_ID:
+            await query.edit_message_text(
+                "❗️ **Сброс пользователя (STUB)**: "
+                "Введите ID пользователя, которого нужно сбросить (например, /reset_user 123456789)."
+            )
+        else:
+            await query.edit_message_text("❌ Нет прав.")
+
+    elif data == 'admin_reset_all':
+        if user_id == ADMIN_USER_ID:
+            # Здесь должна быть логика из reset_all_stats.py
+            await query.edit_message_text("✅ **ВСЯ СТАТИСТИКА СБРОШЕНА (STUB)**.\n"
+                                          "Это действие требует реализации Supabase.")
+        else:
+            await query.edit_message_text("❌ Нет прав.")
+            
+    # --- Общие кнопки ---
+    else:
+        await query.edit_message_text(f"Кнопка '{data}' нажата. Это заглушка (STUB). Требуется реализация логики.")
+
+# --- Обработчик Сброса Пользователя (Админ-команда) ---
+
+async def reset_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    if user_id != ADMIN_USER_ID:
+        await update.message.reply_text("❌ Только администратор может использовать эту команду.")
         return
-    
-    response_text = "Действие кнопки выполнено (STUB): "
-    
-    if data == 'signals_short':
-        response_text += "Запрос Short сигналов (отключен)."
-    elif data == 'signals_long':
-        response_text += "Запрос Long сигналов (отключен)."
-    elif data == 'autotrade_menu':
-        response_text += "Вход в меню Автоторговли (отключено)."
-    elif data == 'my_deals':
-        response_text += "Запрос моих сделок (отключено)."
-    elif data == 'plans':
-        await plans_command(query, context)
-        return
-    elif data == 'faq':
-        await faq_command(query, context)
-        return
-    elif data.startswith('buy_'):
-        plan = data.split('_')[1]
-        response_text = f"Переход к оплате тарифа **{plan.upper()}** (отключено)."
 
     try:
-        await query.edit_message_text(text=response_text, parse_mode=ParseMode.MARKDOWN)
-    except Exception as e:
-        logger.warning(f"Ошибка при редактировании сообщения: {e}")
-        await query.message.reply_text(response_text, parse_mode=ParseMode.MARKDOWN)
+        # Ожидаем ID после команды, например: /reset_user 123456789
+        target_id = int(context.args[0])
+        # Здесь должна быть логика из reset_user.py
+        await update.message.reply_text(f"✅ Пользователь с ID {target_id} **сброшен (STUB)**. "
+                                        "Для реальной работы замените эту заглушку логикой Supabase.")
+    except (IndexError, ValueError):
+        await update.message.reply_text("❗️ Неверный формат. Используйте: /reset_user <ID_пользователя>")
 
-# --- 7. ОБРАБОТЧИК ОШИБОК и ИНИЦИАЛИЗАЦИЯ ---
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.error(f"Update {update} caused error: {context.error}")
-
-async def post_init(application: Application) -> None:
-    """Установка меню команд после инициализации бота."""
-    await application.bot.set_my_commands([BotCommand(command, description) for command, description in DEFAULT_BOT_COMMANDS])
+# --- Главная функция запуска ---
 
 def main() -> None:
     if not BOT_TOKEN:
-        logger.error("❌ Запуск отменен: BOT_TOKEN не найден.")
-        return # Выход, если токена нет
+        logger.error("❌ BOT_TOKEN не найден. Проверьте .env файл или переменные окружения на хостинге.")
+        return
 
-    # Используем Application.builder для современной версии python-telegram-bot
-    application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+    # Проверка, считался ли ADMIN_USER_ID
+    if not ADMIN_USER_ID or ADMIN_USER_ID == 0:
+        logger.warning("❗️ ADMIN_USER_ID не установлен или равен 0. Админ-команды могут быть недоступны.")
 
-    # --- РЕГИСТРАЦИЯ ОБРАБОТЧИКОВ ---
-    
-    # Пользовательские команды
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("signals", signals_command))
-    application.add_handler(CommandHandler("autotrade", autotrade_command))
-    application.add_handler(CommandHandler("plans", plans_command))
-    application.add_handler(CommandHandler("bank", bank_command))
-    application.add_handler(CommandHandler("faq", faq_command))
-    
-    # Административные команды
-    application.add_handler(CommandHandler("broadcast", broadcast_command))
-    application.add_handler(CommandHandler("send_promo", send_promo_command))
-    application.add_handler(CommandHandler("statistics", statistics_command))
-    application.add_handler(CommandHandler("manage_promo", manage_promo_command))
-    application.add_handler(CommandHandler("disable_payments", disable_payments_command))
-    application.add_handler(CommandHandler("add_admin", add_admin_command))
-    application.add_handler(CommandHandler("remove_admin", remove_admin_command))
-    application.add_handler(CommandHandler("set_reviews_group", set_reviews_group_command))
-    application.add_handler(CommandHandler("ban", ban_user_command))
-    application.add_handler(CommandHandler("unban", unban_user_command))
-    application.add_handler(CommandHandler("reset_me", reset_me_command))
-    application.add_handler(CommandHandler("reset_user", reset_user_command))
+    logger.info(f"✅ Токен считан. Начало токена: {BOT_TOKEN[:5]}...")
 
-    # Обработчик текстовых сообщений
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
+    # Использование старого, стабильного метода Updater/run_polling
+    updater = Updater(BOT_TOKEN)
+    dispatcher = updater.dispatcher
+
+    # Добавление обработчиков
+    dispatcher.add_handler(CommandHandler("start", start_command))
+    dispatcher.add_handler(CommandHandler("status", status_command))
+    dispatcher.add_handler(CommandHandler("signals", signals_command))
+    dispatcher.add_handler(CommandHandler("admin", admin_command))
+    dispatcher.add_handler(CommandHandler("reset_user", reset_user_command)) # Админ-команда
+
+    # Обработчик кнопок
+    dispatcher.add_handler(CallbackQueryHandler(button_callback))
+
+    # Установка меню команд (синхронно, так как run_polling блокирующий)
+    try:
+        dispatcher.bot.set_my_commands(
+            [BotCommand(command, description) for command, description in DEFAULT_BOT_COMMANDS]
+        )
+        logger.info("✅ Меню команд установлено.")
+    except Exception as e:
+        logger.error(f"❌ Ошибка установки меню команд: {e}")
+
+    logger.info("🚀 Bot started successfully!")
+    print("✅ Crypto Signals Bot is running...")
     
-    # Обработчик кнопок и ошибок
-    application.add_handler(CallbackQueryHandler(button_callback))
-    application.add_error_handler(error_handler)
-    
-    logger.info("🚀 Бот запущен (Чистый Интерфейс)")
-    print("✅ Crypto Signals Bot is running (Interface Only)...")
-    print(f"👤 Admin User ID: {ADMIN_USER_ID}")
-    
-    # Запуск бота (Polling)
-    application.run_polling(poll_interval=1.0)
+    # Запуск бота (блокирующая функция)
+    updater.start_polling()
+    updater.idle()
+
 
 if __name__ == '__main__':
-    # Эта проверка гарантирует, что bot.py не будет пытаться запуститься, если не найдет токен
-    # Это ключевой момент для предотвращения падения на хостинге.
-    if BOT_TOKEN:
-        main()
-    else:
-        print("🔴 Запуск невозможен. BOT_TOKEN не найден.")
+    main()
+
 
