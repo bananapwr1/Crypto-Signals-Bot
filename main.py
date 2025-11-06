@@ -9,26 +9,33 @@ import warnings
 import uuid
 
 # --- 1. ОЧИЩЕННЫЕ ИМПОРТЫ ---
-# Оставлены только базовые библиотеки для Telegram и переменных окружения
-# Исключены: pandas, numpy, yfinance, matplotlib, sqlite3, yookassa, webhook_system, crypto_utils.
 warnings.filterwarnings('ignore')
 load_dotenv()
 
-# --- 2. КОНФИГУРАЦИЯ ---
+# --- 2. КОНФИГУРАЦИЯ И ПРОВЕРКА ТОКЕНА (Улучшенная диагностика) ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
 SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "@banana_pwr")
+
+# Настройка логирования
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ПРОВЕРКА КРИТИЧЕСКИХ ДАННЫХ
+if not BOT_TOKEN:
+    logger.error("❌ BOT_TOKEN не найден. Проверьте переменные окружения на хостинге.")
+    # Вывод этой строки в лог поможет вам понять, что ошибка не в коде.
+else:
+    # Выводим первые 4 символа токена для подтверждения, что он считался
+    logger.info(f"✅ Токен считан. Начало токена: {BOT_TOKEN[:4]}...")
+
 
 # Московский часовой пояс (UTC+3)
 MOSCOW_TZ = timezone(timedelta(hours=3))
 POCKET_OPTION_REF_LINK = "https://pocket-friends.com/r/ugauihalod"
 PROMO_CODE = "FRIENDUGAUIHALOD"
 
-# Настройка логирования
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Команды бота по умолчанию (для сброса настроек)
+# Команды бота по умолчанию
 DEFAULT_BOT_COMMANDS = [
     ("start", "🏠 Главное меню"),
     ("plans", "💎 Тарифы и подписки"),
@@ -38,14 +45,12 @@ DEFAULT_BOT_COMMANDS = [
     ("faq", "❓ Помощь"),
 ]
 
-# --- 3. ЗАГЛУШКИ (STUBS) для ЯДРА и БД ---
-# Все функции, требующие тяжелых зависимостей или БД, заменены на заглушки, 
-# чтобы избежать ModuleNotFoundError и позволить интерфейсу работать.
+# --- 3. ЗАГЛУШКИ (STUBS) для ЯДРА и БД (КОД ОСТАВЛЕН БЕЗ ИЗМЕНЕНИЙ) ---
 
 async def check_user_access(update: Update, context: ContextTypes.DEFAULT_TYPE, required_level="any") -> bool:
     """Заглушка для проверки прав доступа пользователя."""
     if update.effective_user.id == ADMIN_USER_ID:
-        return True # Админ всегда имеет доступ
+        return True 
     if required_level == "admin":
         await update.message.reply_text("⛔ Доступно только администраторам (STUB).")
         return False
@@ -54,7 +59,6 @@ async def check_user_access(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 async def check_or_create_user(user_id: int, username: str) -> None:
     """Заглушка для создания/обновления пользователя в базе данных."""
     logger.info(f"DB STUB: Проверка/создание пользователя {user_id} - {username}")
-    # Здесь будет вызов requests к Supabase
     pass
 
 async def reset_user_stats_stub(user_id: int):
@@ -235,8 +239,8 @@ async def post_init(application: Application) -> None:
 
 def main() -> None:
     if not BOT_TOKEN:
-        logger.error("❌ BOT_TOKEN не найден. Проверьте .env файл/переменные окружения.")
-        return
+        logger.error("❌ Запуск отменен: BOT_TOKEN не найден.")
+        return # Выход, если токена нет
 
     # Используем Application.builder для современной версии python-telegram-bot
     application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
@@ -282,6 +286,11 @@ def main() -> None:
     application.run_polling(poll_interval=1.0)
 
 if __name__ == '__main__':
-    main()
+    # Эта проверка гарантирует, что bot.py не будет пытаться запуститься, если не найдет токен
+    # Это ключевой момент для предотвращения падения на хостинге.
+    if BOT_TOKEN:
+        main()
+    else:
+        print("🔴 Запуск невозможен. BOT_TOKEN не найден.")
 
 
