@@ -486,6 +486,50 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
+    # God panel callbacks (только для админа)
+    elif data.startswith('god_'):
+        if user_id != ADMIN_USER_ID:
+            await query.edit_message_text("❌ Доступ запрещен")
+            return
+            
+        if data == 'god_close':
+            await query.edit_message_text("⚡️ God панель закрыта")
+            return
+        elif data == 'god_stats':
+            users = supabase_request('users')
+            active_traders = supabase_request('bot_status', filters='is_active=eq.true')
+            message = (
+                f"📊 *Статистика системы*\n\n"
+                f"• Всего пользователей: {len(users) if users else 0}\n"
+                f"• Активных трейдеров: {len(active_traders) if active_traders else 0}\n"
+                f"• Админ ID: {ADMIN_USER_ID}"
+            )
+            keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data='god_back')]]
+            await query.edit_message_text(message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+            return
+        elif data == 'god_back':
+            # Возвращаем god панель
+            keyboard = [
+                [InlineKeyboardButton("📊 Статистика", callback_data='god_stats'),
+                 InlineKeyboardButton("👥 Пользователи", callback_data='god_users')],
+                [InlineKeyboardButton("⚙️ Настройки", callback_data='god_settings'),
+                 InlineKeyboardButton("📝 Логи", callback_data='god_logs')],
+                [InlineKeyboardButton("🔄 Перезагрузка", callback_data='god_restart'),
+                 InlineKeyboardButton("🗑️ Очистка", callback_data='god_cleanup')],
+                [InlineKeyboardButton("🔙 Закрыть", callback_data='god_close')]
+            ]
+            message = (
+                f"⚡️ *GOD MODE ПАНЕЛЬ*\n\n"
+                f"👑 Админ ID: {ADMIN_USER_ID}\n\n"
+                f"Выберите действие:"
+            )
+            await query.edit_message_text(message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+            return
+        else:
+            # Для остальных god команд
+            await query.edit_message_text(f"⚡️ God функция '{data}' в разработке", parse_mode='Markdown')
+            return
+    
     # Если действие не распознано
     await query.edit_message_text("⚡ Действие выполнено")
 
@@ -509,6 +553,35 @@ async def admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     
     await update.message.reply_text(message, parse_mode='Markdown')
+
+async def god_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """God команда (только для админа) - полная панель управления"""
+    if update.effective_user.id != ADMIN_USER_ID:
+        await update.message.reply_text("❌ Доступ запрещен")
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("📊 Статистика", callback_data='god_stats'),
+         InlineKeyboardButton("👥 Пользователи", callback_data='god_users')],
+        [InlineKeyboardButton("⚙️ Настройки", callback_data='god_settings'),
+         InlineKeyboardButton("📝 Логи", callback_data='god_logs')],
+        [InlineKeyboardButton("🔄 Перезагрузка", callback_data='god_restart'),
+         InlineKeyboardButton("🗑️ Очистка", callback_data='god_cleanup')],
+        [InlineKeyboardButton("🔙 Закрыть", callback_data='god_close')]
+    ]
+    
+    message = (
+        f"⚡️ *GOD MODE ПАНЕЛЬ*\n\n"
+        f"👑 Админ: {update.effective_user.first_name}\n"
+        f"🆔 ID: {ADMIN_USER_ID}\n\n"
+        f"Выберите действие:"
+    )
+    
+    await update.message.reply_text(
+        message,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
 
 # ===== ОСНОВНАЯ ФУНКЦИЯ =====
 
@@ -545,8 +618,9 @@ def main() -> None:
     application.add_handler(CommandHandler("help", faq_command))
     application.add_handler(CommandHandler("status", status_command))
     
-    # Админ команды
+    # Админ команды (СКРЫТЫЕ - не отображаются в списке команд)
     application.add_handler(CommandHandler("admin", admin_stats_command))
+    application.add_handler(CommandHandler("god", god_command))
     
     # Обработчики сообщений и кнопок
     application.add_handler(CallbackQueryHandler(button_callback))

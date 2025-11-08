@@ -26,6 +26,7 @@ from bot_interface import (
     bank_command,
     faq_command,
     admin_stats_command,
+    god_command,
     button_callback,
     setup_commands
 )
@@ -43,6 +44,7 @@ __all__ = [
     'bank_command',
     'faq_command',
     'admin_stats_command',
+    'god_command',
     'button_callback',
     'setup_commands'
 ]
