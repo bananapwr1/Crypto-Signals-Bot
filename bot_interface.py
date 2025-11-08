@@ -1,179 +1,239 @@
+
+## 🔧 Конкретные инструкции для выполнения:
+
+**1. Создайте файл `bot_interface.py` с таким содержимым:**
+
+```python
 import os
 import logging
-from datetime import datetime, timedelta
-# Используем минимальный набор библиотек:
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ParseMode
-from dotenv import load_dotenv # Для переменных окружения
+import asyncio
+from datetime import datetime, timedelta, timezone
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, ParseMode
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from dotenv import load_dotenv
+import warnings
+import uuid
+import requests
+import json
 
-# --- 1. Конфигурация и Логирование (Минимальные) ---
-
-# Загрузка переменных окружения из .env
+warnings.filterwarnings('ignore')
 load_dotenv()
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-# SUPABASE_URL и SUPABASE_KEY также должны быть в .env
 
+# Конфигурация
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
+SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "@banana_pwr")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+# Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- 2. Заглушка (Stub) для Базы Данных ---
-# Мы заменили DatabaseManager и всю сложную логику
-# На этом этапе команды будут просто отвечать, а не читать/писать в реальную БД.
+# Команды бота
+DEFAULT_BOT_COMMANDS = [
+    ("start", "Главное меню"),
+    ("plans", "Тарифы и подписки"),
+    ("bank", "Управление банком"),
+    ("autotrade", "Автоторговля"),
+    ("signals", "Сигналы Short/Long"),
+    ("faq", "Помощь"),
+]
 
-def check_or_create_user_stub(user_id, username):
-    """Имитация проверки пользователя в базе данных."""
-    logger.info(f"DB STUB: Проверка/создание пользователя {user_id} - {username}")
-    # В будущем здесь будет запрос через библиотеку requests к Supabase
+# ===== РЕАЛЬНЫЕ ФУНКЦИИ SUPABASE =====
+
+def supabase_request(table, method='GET', data=None, filters=None):
+    """Реальные запросы к Supabase"""
+    headers = {
+        'apikey': SUPABASE_KEY,
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal'
+    }
+    
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    
+    if filters:
+        url += f"?{filters}"
+    
+    try:
+        if method == 'POST':
+            response = requests.post(url, headers=headers, json=data)
+        elif method == 'GET':
+            response = requests.get(url, headers=headers)
+        elif method == 'PATCH':
+            response = requests.patch(url, headers=headers, json=data)
+        
+        if response.status_code in [200, 201, 204]:
+            return response.json() if response.content else {'status': 'success'}
+        else:
+            logger.error(f"Supabase error: {response.status_code} - {response.text}")
+            return None
+    except Exception as e:
+        logger.error(f"Supabase request error: {e}")
+        return None
+
+async def real_check_or_create_user(user_id: int, username: str):
+    """Реальная проверка/создание пользователя в Supabase"""
+    user_data = {
+        'telegram_id': user_id,
+        'username': username or 'Unknown',
+        'subscription_type': 'none',
+        'created_at': datetime.now().isoformat()
+    }
+    
+    result = supabase_request('users', 'POST', user_data)
+    if result:
+        logger.info(f"User {user_id} checked/created in Supabase")
+    else:
+        logger.error(f"Failed to create user {user_id} in Supabase")
+
+async def save_user_command(user_id: int, command: str, asset=None, details=None):
+    """Сохранение команды для торгового ядра"""
+    command_data = {
+        'user_id': user_id,
+        'command': command,
+        'asset': asset,
+        'details': details,
+        'processed': False,
+        'created_at': datetime.now().isoformat()
+    }
+    
+    result = supabase_request('user_commands', 'POST', command_data)
+    return result is not None
+
+async def get_bot_status(user_id: int):
+    """Получение статуса торговли из Supabase"""
+    status_data = supabase_request('bot_status', filters=f'user_id=eq.{user_id}')
+    if status_data and len(status_data) > 0:
+        return status_data[0]
+    return None
+
+# ===== СУЩЕСТВУЮЩИЕ ФУНКЦИИ ИЗ main.py (с небольшими улучшениями) =====
+
+async def check_user_access(update: Update, context: ContextTypes.DEFAULT_TYPE, required_level="any") -> bool:
+    """Проверка прав доступа пользователя"""
+    if update.effective_user.id == ADMIN_USER_ID:
+        return True
+    if required_level == "admin":
+        await update.message.reply_text("📅 Доступно только администраторам.")
+        return False
     return True
 
-def get_signal_stub(type_str, user_is_vip=False):
-    """Имитация получения сигналов."""
-    if type_str == 'short' and not user_is_vip:
-        return [
-            "🚀 SHORT-сигнал [STUB]: ETH/USD, SELL, Срок: 5 мин.",
-            "❌ У вас нет подписки Short. Посмотрите /plans."
-        ]
-    if type_str == 'long':
-        return [
-            "📈 LONG-сигнал [STUB]: BTC/USDT, BUY, Срок: 4 часа",
-            "📈 LONG-сигнал [STUB]: LTC/USD, SELL, Срок: 6 часов"
-        ]
-    return ["Сигналы недоступны (STUB)."]
-
-# --- 3. Обработчики Команд (Интерфейс) ---
-
-def start(update: Update, context: CallbackContext) -> None:
-    # ❗️ Здесь мы будем вызывать check_or_create_user_stub()
-    check_or_create_user_stub(update.effective_user.id, update.effective_user.username)
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Главное меню"""
+    user_id = update.effective_user.id
+    username = update.effective_user.username
+    
+    # Реальная проверка пользователя
+    await real_check_or_create_user(user_id, username)
     
     keyboard = [
-        [InlineKeyboardButton("Short Signals 🚀", callback_data='short')],
-        [InlineKeyboardButton("Long Signals 📈", callback_data='long')],
-        [InlineKeyboardButton("My Stats 📊", callback_data='stats')],
-        [InlineKeyboardButton("Plans 💳", callback_data='plans'), 
-         InlineKeyboardButton("Settings ⚙️", callback_data='settings')]
+        [InlineKeyboardButton("📊 Статус торговли", callback_data='status'),
+         InlineKeyboardButton("📈 Автоторговля", callback_data='autotrade_menu')],
+        [InlineKeyboardButton("🟧 Сигналы Short", callback_data='signals_short'),
+         InlineKeyboardButton("🟦 Сигналы Long", callback_data='signals_long')],
+        [InlineKeyboardButton("💼 Тарифы", callback_data='plans'),
+         InlineKeyboardButton("❓ Помощь", callback_data='faq')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-
-    update.message.reply_text(
-        'Привет, я Crypto Signals Bot! Выберите действие:',
-        reply_markup=reply_markup
+    
+    await update.message.reply_text(
+        '🤖 *Crypto Signals Bot*\\n\\nВыберите действие:',
+        reply_markup=reply_markup,
+        parse_mode=ParseMode.MARKDOWN
     )
 
-def short_signal(update: Update, context: CallbackContext) -> None:
-    # ❗️ Здесь мы заменяем сложную логику на заглушку
-    signals = get_signal_stub('short', user_is_vip=False) # Предполагаем, что подписки нет
-    update.message.reply_text('\n'.join(signals))
+# ... (остальные функции из main.py остаются практически без изменений)
 
-def long_signal(update: Update, context: CallbackContext) -> None:
-    # ❗️ Здесь мы заменяем сложную логику на заглушку
-    signals = get_signal_stub('long')
-    update.message.reply_text('\n'.join(signals))
+async def autotrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Автоторговля - теперь с реальной записью в базу"""
+    user_id = update.effective_user.id
+    
+    # Сохраняем команду для торгового ядра
+    success = await save_user_command(user_id, 'start_autotrade')
+    
+    if success:
+        await update.message.reply_text(
+            "✅ *Команда на автоторговлю передана ядру*\\n\\n"
+            "Торговое ядро получило команду и начинает анализ рынка...",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        await update.message.reply_text("❌ Ошибка передачи команды")
 
-def my_stats(update: Update, context: CallbackContext) -> None:
-    # ❗️ Здесь мы заменяем сложную логику на заглушку
-    update.message.reply_text(
-        "📊 **Моя статистика (STUB)**\n"
-        "Баланс: $0.00 (Демо)\n"
-        "Win Rate: 50.0%\n"
-        "Стратегия: Low Risk (STUB)\n"
-        "Для реальной статистики нужна интеграция с Supabase."
-    )
-
-def subscription_plans(update: Update, context: CallbackContext) -> None:
-    # Ваш интерфейс для тарифов
-    keyboard = [
-        [InlineKeyboardButton("Short Plan (4990₽) 🚀", callback_data='buy_short')],
-        [InlineKeyboardButton("Long Plan (4990₽) 📈", callback_data='buy_long')],
-        [InlineKeyboardButton("VIP Plan (9990₽) ⭐", callback_data='buy_vip')],
-        [InlineKeyboardButton("Назад", callback_data='start')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text('Выберите тарифный план:', reply_markup=reply_markup)
-
-def settings(update: Update, context: CallbackContext) -> None:
-    # Ваш интерфейс для настроек
-    keyboard = [
-        [InlineKeyboardButton("Установить стратегию", callback_data='set_strategy')],
-        [InlineKeyboardButton("Установить PO Credentials", callback_data='set_po_credentials')],
-        [InlineKeyboardButton("Назад", callback_data='start')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text('⚙️ Настройки:', reply_markup=reply_markup)
-
-# Ваш обработчик неизвестных команд
-def unknown(update: Update, context: CallbackContext) -> None:
-    update.message.reply_text(f"Команда '{update.message.text}' не распознана. Используйте /start.")
-
-# Ваш обработчик ошибок
-def error(update: Update, context: CallbackContext) -> None:
-    logger.warning(f'Update "{update}" caused error "{context.error}"')
-
-# --- 4. Обработчик Кнопок (Интерфейс) ---
-
-def button(update: Update, context: CallbackContext) -> None:
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик кнопок с реальной логикой"""
     query = update.callback_query
-    query.answer()
+    await query.answer()
     
-    # Обработка команд в зависимости от callback_data
-    if query.data == 'start':
-        start(update, context)
+    user_id = query.from_user.id
+    data = query.data
+    
+    if data == 'start':
+        await start_command(query, context)
+        return
+        
+    if data == 'status':
+        # Показываем реальный статус из базы
+        status_info = await get_bot_status(user_id)
+        if status_info:
+            message = (
+                f"📊 *Статус торговли*\\n\\n"
+                f"• Активность: {'🟢 ВКЛ' if status_info.get('is_active') else '🔴 ВЫКЛ'}\\n"
+                f"• Сделок сегодня: {status_info.get('trades_today', 0)}\\n"
+                f"• Профит: {status_info.get('daily_profit', 0)}€\\n"
+                f"• Баланс: {status_info.get('balance', 0)}€"
+            )
+        else:
+            message = "📊 *Статус*\\n\\nТорговля еще не запущена"
+        
+        await query.edit_message_text(message, parse_mode=ParseMode.MARKDOWN)
+        return
+        
+    if data == 'autotrade_menu':
+        success = await save_user_command(user_id, 'start_autotrade')
+        if success:
+            await query.edit_message_text(
+                "✅ *Автоторговля запускается*\\n\\n"
+                "Команда передана торговому ядру. Ожидайте сигналов...",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        return
+        
+    if data in ['signals_short', 'signals_long']:
+        signal_type = 'short' if data == 'signals_short' else 'long'
+        success = await save_user_command(user_id, f'get_signals_{signal_type}')
+        if success:
+            await query.edit_message_text(
+                f"📡 *Запрос {signal_type.upper()} сигналов*\\n\\n"
+                "Сигналы запрошены у торгового ядра...",
+                parse_mode=ParseMode.MARKDOWN
+            )
         return
     
-    response_text = "Действие выполнено (STUB): "
-    
-    if query.data == 'short':
-        response_text += "Short Signals (см. /short)"
-    elif query.data == 'long':
-        response_text += "Long Signals (см. /long)"
-    elif query.data == 'stats':
-        response_text += "My Stats (см. /stats)"
-    elif query.data == 'plans':
-        subscription_plans(update, context)
-        return
-    elif query.data == 'settings':
-        settings(update, context)
-        return
-    elif query.data.startswith('buy_'):
-        plan = query.data.split('_')[1]
-        response_text = f"Переход к оплате тарифа **{plan.upper()}** (STUB)."
-    elif query.data == 'set_strategy':
-        response_text = "Вход в меню выбора стратегии (STUB)."
-    elif query.data == 'set_po_credentials':
-        response_text = "Вход в меню ввода данных Pocket Option (STUB)."
+    # Остальная логика кнопок остается как в main.py
+    # ...
 
-    query.edit_message_text(text=response_text, parse_mode=ParseMode.MARKDOWN)
+# ... (остальной код из main.py)
 
-# --- 5. Основная Функция Запуска ---
-
-def main():
+def main() -> None:
+    """Запуск бота"""
     if not BOT_TOKEN:
-        logger.error("❌ BOT_TOKEN не найден. Проверьте .env файл.")
+        logger.error("BOT_TOKEN не найден.")
         return
-
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    # Регистрируем все ваши команды
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("help", help_command))
-    dp.add_handler(CommandHandler("short", short_signal))
-    dp.add_handler(CommandHandler("long", long_signal))
-    dp.add_handler(CommandHandler("stats", my_stats))
-    dp.add_handler(CommandHandler("plans", subscription_plans))
-    dp.add_handler(CommandHandler("settings", settings))
+        
+    application = Application.builder().token(BOT_TOKEN).build()
     
-    # Обработчик кнопок
-    dp.add_handler(CallbackQueryHandler(button))
-
-    # Обработчики неизвестных команд и ошибок
-    dp.add_handler(MessageHandler(Filters.command, unknown))
-    dp.add_error_handler(error)
-
-    # Запуск бота
-    logger.info("✅ Бот запускается (Интерфейс)")
-    updater.start_polling()
+    # Регистрация обработчиков (как в main.py)
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("autotrade", autotrade_command))
+    # ... остальные обработчики
+    
+    application.add_handler(CallbackQueryHandler(button_callback))
+    
+    logger.info("🚀 Интерфейсный бот запущен (BotHost.ru)")
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
-  
