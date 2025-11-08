@@ -1,97 +1,223 @@
-# 🤖 Pocket Option Pro Bot
+# 🤖 Crypto Signals Bot - Clean Interface
 
-A professional Telegram trading bot for Pocket Option with AI-powered signals, technical analysis, and subscription management.
+Минимальный Telegram бот-интерфейс с Flask админ-панелью. **Вся торговая логика и аналитика удалены.**
 
-## ✨ Features
+## ✨ Особенности
 
-- 📊 **Real-time Market Data**: Fetches live data from Yahoo Finance for 8+ trading assets
-- 📈 **Technical Analysis**: RSI, SMA indicators with intelligent signal generation
-- 💎 **Subscription System**: Free trial (3 signals) + PRO subscription management
-- 📉 **Fast Timeframe Analysis**: 1M, 5M (max 5 minutes for quick signals)
-- 📱 **Interactive UI**: Inline keyboards with callback query handling
-- 📊 **Professional Charts**: Beautiful trading charts with matplotlib
-- 💾 **SQLite Database**: User management and subscription tracking
+- 📱 **Telegram интерфейс**: Команды /start, /status, /trade, /stop
+- 🛠️ **Админ панель**: Flask веб-интерфейс для управления
+- 💾 **Supabase**: Интеграция с базой данных Supabase
+- 🔐 **Безопасность**: Все секреты в переменных окружения
+- ✅ **Без зависимостей**: Никаких pandas, numpy, sklearn, tensorflow
 
-## 🚀 Quick Start
+## 🚀 Быстрый старт
 
-### 1. Get Your Bot Token
-
-1. Open Telegram and search for [@BotFather](https://t.me/BotFather)
-2. Send `/newbot` command
-3. Follow the instructions to create your bot
-4. Copy the bot token
-
-### 2. Set Environment Variables
-
-Create a `.env` file in the project root:
-
-```env
-BOT_TOKEN=your_telegram_bot_token_here
-ADMIN_CHAT_ID=your_admin_chat_id_here
-```
-
-### 3. Run the Bot
-
-The bot will start automatically. You can also run it manually:
+### 1. Клонирование репозитория
 
 ```bash
-python main.py
+git clone https://github.com/bananapwr1/Crypto-Signals-Bot.git
+cd Crypto-Signals-Bot
 ```
 
-## 📋 Bot Commands
-
-- `/start` - Start the bot and view main menu
-- `/signal_all` - Scan market and get top 3 trading signals
-- `/buy_subscription` - View subscription options
-- `/my_stats` - View your statistics and subscription status
-
-## 🎯 Trading Assets
-
-The bot analyzes these popular trading instruments:
-
-- EUR/USD, GBP/USD, USD/JPY, AUD/USD (Forex)
-- BTC/USD, ETH/USD (Crypto)
-- XAU/USD (Gold)
-- US30 (Dow Jones)
-
-## 💰 Subscription Plans
-
-- **Free Trial**: 3 signals (24 hours)
-- **PRO**: 4990 RUB/month - Unlimited signals
-
-## 🛠️ Tech Stack
-
-- **Python 3.11+**
-- **python-telegram-bot** - Telegram Bot API
-- **yfinance** - Market data
-- **pandas & numpy** - Data analysis
-- **matplotlib** - Chart generation
-- **sqlite3** - Database
-
-## 📝 Project Structure
-
-```
-.
-├── main.py              # Main bot application
-├── requirements.txt     # Python dependencies
-├── .env                 # Environment variables (create this)
-├── .env.example         # Environment template
-├── pocket_option_pro.db # SQLite database (auto-created)
-└── README.md            # This file
-```
-
-## 🔧 Development
-
-Install dependencies:
+### 2. Установка зависимостей
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## ⚠️ Disclaimer
+### 3. Настройка переменных окружения
 
-This bot is for educational purposes only. Trading involves risk. Always do your own research before making trading decisions.
+Создайте файл `.env` в корне проекта:
 
-## 📞 Support
+```env
+# Telegram Bot Token
+BOT_TOKEN=your_telegram_bot_token_here
 
-For subscription support or issues, contact: @pocket_option_support
+# Supabase credentials
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+
+# Flask (опционально)
+FLASK_SECRET_KEY=your_secret_key_here
+```
+
+**⚠️ ВАЖНО:** Используйте **КЛЮЧИ** переменных окружения, а не их значения!
+
+### 4. Запуск бота
+
+```bash
+python run_bot.py
+```
+
+Или напрямую:
+
+```bash
+python bot_interface.py
+```
+
+### 5. Запуск Flask админ-панели
+
+```bash
+python app.py
+```
+
+Админ-панель будет доступна по адресу: `http://localhost:5000`
+
+## 📋 Команды бота
+
+- `/start` - Главное меню
+- `/status` - Статус системы
+- `/trade` - Записать намерение торговли
+- `/stop` - Остановить операции
+- `/admin` - Админ панель (только для администраторов)
+
+## 🏗️ Структура проекта
+
+```
+.
+├── bot_interface.py     # Основной файл бота (ИСПРАВЛЕН)
+├── bot_backup.py        # Резервная копия оригинального main.py
+├── run_bot.py           # Точка запуска бота
+├── app.py               # Flask админ-панель
+├── database.py          # Интерфейс для работы с Supabase
+├── config.py            # Конфигурация (ИСПРАВЛЕН)
+├── requirements.txt     # Зависимости Python
+├── .env                 # Переменные окружения (создайте сами)
+└── README.md            # Этот файл
+```
+
+## 🔧 Конфигурация
+
+### config.py
+
+**✅ ИСПРАВЛЕНА критическая ошибка**: Теперь используются правильные ключи переменных окружения.
+
+**БЫЛО (НЕПРАВИЛЬНО):**
+```python
+TELEGRAM_TOKEN = os.getenv('8218904195:AAGinuQn0eGe8qYm...')  # ❌
+```
+
+**СТАЛО (ПРАВИЛЬНО):**
+```python
+TELEGRAM_TOKEN = os.getenv('BOT_TOKEN')  # ✅
+```
+
+### database.py
+
+Простые функции для работы с Supabase:
+- `add_user(user_dict)` - Добавить пользователя
+- `add_command(command_dict)` - Записать команду
+- `get_users()` - Получить всех пользователей
+- `get_commands(limit)` - Получить команды
+- `get_status()` - Получить статус системы
+- `update_status(key, value)` - Обновить статус
+
+**Безопасная работа**: Если Supabase credentials отсутствуют, работает в режиме заглушки.
+
+## 🛠️ Технологии
+
+- **Python 3.11+**
+- **python-telegram-bot 20.7** - Telegram Bot API
+- **Flask 3.0** - Веб-фреймворк для админ-панели
+- **Supabase 2.3** - База данных
+- **python-dotenv** - Загрузка переменных окружения
+- **requests** - HTTP запросы
+
+## 📊 База данных Supabase
+
+### Требуемые таблицы:
+
+1. **users** - Пользователи бота
+   ```sql
+   CREATE TABLE users (
+     user_id TEXT PRIMARY KEY,
+     username TEXT,
+     first_name TEXT,
+     created_at TIMESTAMP,
+     updated_at TIMESTAMP
+   );
+   ```
+
+2. **commands** - Лог команд
+   ```sql
+   CREATE TABLE commands (
+     id SERIAL PRIMARY KEY,
+     user_id TEXT,
+     command TEXT,
+     timestamp TIMESTAMP,
+     data JSONB
+   );
+   ```
+
+3. **bot_status** - Статус бота
+   ```sql
+   CREATE TABLE bot_status (
+     key TEXT PRIMARY KEY,
+     value TEXT,
+     updated_at TIMESTAMP
+   );
+   ```
+
+## 🚀 Деплой на BotHost.ru
+
+1. Загрузите файлы на BotHost.ru
+2. Установите переменные окружения в панели:
+   - `BOT_TOKEN`
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+3. Запустите бота: `python run_bot.py`
+
+## 🔍 Проверка работы
+
+### Тест конфигурации:
+```bash
+python -c "from config import config, Config; Config.validate(); print('✅ Config OK')"
+```
+
+### Тест базы данных:
+```bash
+python -c "from database import database; print('✅ Database OK')"
+```
+
+### Тест бота:
+```bash
+python -c "import bot_interface; bot_interface.check_environment(); print('✅ Bot OK')"
+```
+
+## ⚠️ Что удалено
+
+Из репозитория удалены все файлы с торговой логикой:
+- ❌ `strategy_analyzer.py`
+- ❌ `strategies/`
+- ❌ `trading/`
+- ❌ `analysis/`
+- ❌ `signals/`
+- ❌ Все ML/AI зависимости (pandas, numpy, sklearn, tensorflow)
+
+## 📝 Changelog
+
+### v2.0.0 - Clean Interface
+- ✅ Удалена вся торговая логика и аналитика
+- ✅ Создан минимальный bot_interface.py
+- ✅ Исправлена критическая ошибка в config.py
+- ✅ Добавлена Flask админ-панель
+- ✅ Добавлена интеграция с Supabase
+- ✅ Обновлен requirements.txt (только необходимые зависимости)
+
+## 🐛 Известные проблемы
+
+Нет известных проблем. Если обнаружите баг, создайте Issue.
+
+## 📞 Поддержка
+
+- **Telegram**: @banana_pwr
+- **GitHub Issues**: [Create Issue](https://github.com/bananapwr1/Crypto-Signals-Bot/issues)
+
+## 📄 Лицензия
+
+Этот проект создан для образовательных целей.
+
+---
+
+**Создано**: 2024  
+**Последнее обновление**: 2025-11-08

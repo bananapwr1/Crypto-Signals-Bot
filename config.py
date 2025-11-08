@@ -1,22 +1,55 @@
-# config.py - ИСПРАВЛЕННАЯ версия
+"""
+config.py - ИСПРАВЛЕННАЯ конфигурация для бота
+Использует правильные КЛЮЧИ переменных окружения, а не значения!
+"""
+
 import os
 from dotenv import load_dotenv
 
+# Загрузка переменных окружения из .env файла
 load_dotenv()
 
+
 class Config:
-    # Основные ключи - ИСПРАВЛЕНО: используем названия переменных, а не значения!
-    TELEGRAM_TOKEN = os.getenv('BOT_TOKEN')  # было: os.getenv('8218904195:AAGinuQn0eGe8qYm-P5EOPwVq3awPyJ5fD8')
-    SUPABASE_URL = os.getenv('NEXT_PUBLIC_SUPABASE_URL')  # было: os.getenv('https://qdilspmiaoxrnotarjnq.supabase.co')
-    SUPABASE_KEY = os.getenv('NEXT_PUBLIC_SUPABASE_ANON_KEY')  # было: os.getenv('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...')
+    """Конфигурация приложения"""
     
-    # Дополнительные настройки
-    ADMIN_IDS = [7746862973]  # ваш Telegram ID
+    # Telegram настройки - ИСПРАВЛЕНО: используем КЛЮЧИ, а не значения!
+    TELEGRAM_TOKEN = os.getenv('BOT_TOKEN')
+    
+    # Supabase настройки - ИСПРАВЛЕНО: используем КЛЮЧИ!
+    SUPABASE_URL = os.getenv('NEXT_PUBLIC_SUPABASE_URL')
+    SUPABASE_KEY = os.getenv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
+    
+    # Flask настройки
+    FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
+    
+    # Encryption key (если используется)
+    ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY')
+    
+    # Настройки бота
+    ADMIN_IDS = [int(id.strip()) for id in os.getenv('ADMIN_IDS', '7746862973').split(',') if id.strip()]
     SUPPORT_CONTACT = "@banana_pwr"
+    ENABLED_COMMANDS = ['start', 'status', 'trade', 'stop']
     
-    # Настройки кеширования
-    CACHE_TTL = {
-        'signals': 300,
-        'market_data': 60,
-        'user_data': 3600
-    }
+    @classmethod
+    def validate(cls):
+        """Проверка наличия необходимых переменных окружения"""
+        required_vars = {
+            'BOT_TOKEN': cls.TELEGRAM_TOKEN,
+            'NEXT_PUBLIC_SUPABASE_URL': cls.SUPABASE_URL,
+            'NEXT_PUBLIC_SUPABASE_ANON_KEY': cls.SUPABASE_KEY
+        }
+        
+        missing = [key for key, value in required_vars.items() if not value]
+        
+        if missing:
+            raise ValueError(
+                f"❌ Отсутствуют обязательные переменные окружения: {', '.join(missing)}\n"
+                f"Проверьте файл .env или настройки BotHost.ru"
+            )
+        
+        return True
+
+
+# Глобальный экземпляр конфигурации
+config = Config()

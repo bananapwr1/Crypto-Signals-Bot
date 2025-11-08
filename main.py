@@ -1,9 +1,16 @@
-# main.py: Telegram Bot с современным API (Application)
+"""
+main.py - Telegram интерфейс бота
+С реальной работой с Supabase и проверкой окружения.
+Основной файл для запуска бота.
+"""
+
 import os
 import logging
+from datetime import datetime, timezone
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+
+# Загрузка переменных окружения
+load_dotenv()
 
 # Настройка логирования
 logging.basicConfig(
@@ -12,29 +19,78 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Загрузка переменных окружения
-load_dotenv()
+# Импорт config
+try:
+    from config import config, Config
+    CONFIG_AVAILABLE = True
+except ImportError:
+    CONFIG_AVAILABLE = False
+    logger.error("❌ config.py не найден")
+    config = None
+
+# Импорт Telegram API (v20+)
+try:
+    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
+    from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+    TELEGRAM_AVAILABLE = True
+except ImportError:
+    TELEGRAM_AVAILABLE = False
+    logger.error("❌ python-telegram-bot не установлен")
+
+# Импорт database
+try:
+    from database import database
+    DATABASE_AVAILABLE = True
+except ImportError:
+    DATABASE_AVAILABLE = False
+    database = None
+    logger.warning("⚠️ database.py не найден, работа в режиме без БД")
+
+
+def check_environment():
+    """Проверка наличия всех необходимых переменных окружения"""
+    required_vars = ['BOT_TOKEN', 'NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY']
+    missing = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing:
+        error_msg = f"❌ Отсутствуют обязательные переменные окружения: {', '.join(missing)}"
+        logger.error(error_msg)
+        logger.error("Проверьте файл .env или настройки BotHost.ru!")
+        raise Exception(error_msg)
+    
+    logger.info("✅ Все необходимые переменные окружения найдены")
+    return True
+
 
 # Конфигурация
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_USER_ID = 7746862973  # Ваш Telegram ID
+BOT_TOKEN = os.getenv('BOT_TOKEN')
 
-# Заглушка базы данных (замените на реальную реализацию)
-class DatabaseManager:
-    def check_or_create_user(self, user_id: int, username: str) -> bool:
-        logger.info(f"DB: Создание/проверка пользователя {user_id}")
-        return True
+
+# --- Обработчики команд ---
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /start - Приветствие и главное меню"""
+    user = update.effective_user
     
-    def get_user_status(self, user_id: int) -> dict:
-        return {"status": "Active", "plan": "Basic"}
-
-db = DatabaseManager()
-
-# Вспомогательные функции
-def is_admin(user_id: int) -> bool:
-    return user_id == ADMIN_USER_ID
-
-def get_main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    # Добавляем пользователя в базу данных
+    if DATABASE_AVAILABLE and database:
+        database.add_user({
+            'user_id': user.id,
+            'username': user.username or f'user_{user.id}',
+            'first_name': user.first_name,
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        })
+        
+        # Логируем команду
+        database.add_command({
+            'user_id': user.id,
+            'command': 'start',
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        })
+    
+    # Проверяем является ли пользователь админом
+    is_admin = config and user.id in config.ADMIN_IDS
+    
     keyboard = [
         [InlineKeyboardButton("💎 Тарифы и подписки", callback_data='plans')],
         [
@@ -44,117 +100,382 @@ def get_main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton("⚙️ Настройки", callback_data='settings')]
     ]
     
-    if is_admin(user_id):
-        keyboard.append([InlineKeyboardButton("⚙️ АДМИН ПАНЕЛЬ", callback_data='admin_panel')])
+    if is_admin:
+        keyboard.append([InlineKeyboardButton("🛠️ АДМИН ПАНЕЛЬ", callback_data='admin_panel')])
     
-    return InlineKeyboardMarkup(keyboard)
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    welcome_text = f'👋 Привет, {user.first_name}!\n\n'
+    welcome_text += '🤖 Я бот-интерфейс для управления.\n'
+    welcome_text += 'Выберите действие:'
+    
+    await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
-# Обработчики команд
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /status - Показать текущий статус"""
     user = update.effective_user
-    db.check_or_create_user(user.id, user.username or f"user_{user.id}")
     
-    welcome_text = f"🤖 Привет, {user.first_name}! Я твой бот-помощник."
+    # Логируем команду
+    if DATABASE_AVAILABLE and database:
+        database.add_command({
+            'user_id': user.id,
+            'command': 'status',
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        })
+        
+        # Получаем статус из базы
+        status = database.get_status()
+        status_text = (
+            f"📊 **Статус системы**\n\n"
+            f"👥 Пользователей: {status.get('total_users', 0)}\n"
+            f"📝 Команд выполнено: {status.get('total_commands', 0)}\n"
+            f"⚡ Статус: {status.get('status', 'unknown')}\n"
+        )
+    else:
+        status_text = "📊 **Статус системы**\n\nРабота в режиме без БД"
+    
+    await update.message.reply_text(status_text, parse_mode='Markdown')
+
+
+async def trade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /trade - Записать намерение торговли"""
+    user = update.effective_user
+    
+    # Записываем команду в базу данных
+    if DATABASE_AVAILABLE and database:
+        database.add_command({
+            'user_id': user.id,
+            'command': 'trade',
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'data': {'intent': 'trade_request'}
+        })
     
     await update.message.reply_text(
-        welcome_text,
-        reply_markup=get_main_menu_keyboard(user.id)
+        "💰 **Trade команда**\n\n"
+        "Ваше намерение торговли записано.\n"
+        "Эта команда сохраняет информацию в базе данных.\n\n"
+        "⚠️ Примечание: Торговая логика удалена из системы."
     )
 
+
+async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /stop - Остановить операции"""
+    user = update.effective_user
+    
+    # Записываем команду
+    if DATABASE_AVAILABLE and database:
+        database.add_command({
+            'user_id': user.id,
+            'command': 'stop',
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'data': {'intent': 'stop_request'}
+        })
+    
+    await update.message.reply_text(
+        "🛑 **Stop команда**\n\n"
+        "Команда остановки записана в систему."
+    )
+
+
+# --- Обработчик кнопок ---
+
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("⛔️ Доступ запрещен.")
+    """Команда /admin - Админ панель"""
+    user = update.effective_user
+    
+    # Проверяем права администратора
+    if not config or user.id not in config.ADMIN_IDS:
+        await update.message.reply_text("⛔️ Доступ запрещен. Эта команда только для администраторов.")
         return
     
+    # Логируем команду
+    if DATABASE_AVAILABLE and database:
+        database.add_command({
+            'user_id': user.id,
+            'command': 'admin',
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        })
+    
     keyboard = [
-        [InlineKeyboardButton("Статистика", callback_data='admin_stats'),
-         InlineKeyboardButton("Сброс статистики", callback_data='admin_reset_stats')],
-        [InlineKeyboardButton("Управление пользователями", callback_data='admin_user_manage')],
-        [InlineKeyboardButton("Назад в меню", callback_data='menu')]
+        [InlineKeyboardButton("📊 Статистика", callback_data='admin_stats'),
+         InlineKeyboardButton("🔄 Сброс статистики", callback_data='admin_reset_stats')],
+        [InlineKeyboardButton("👥 Пользователи", callback_data='admin_users')],
+        [InlineKeyboardButton("⬅️ Назад в меню", callback_data='menu')]
     ]
     
     await update.message.reply_text(
-        "🛠️ **АДМИН ПАНЕЛЬ**",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        "🛠️ **АДМИН ПАНЕЛЬ**\n\n"
+        "Выберите действие:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
     )
 
-# Обработчик кнопок
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик inline кнопок"""
     query = update.callback_query
     await query.answer()
     
+    user = query.from_user
     data = query.data
-    user_id = query.from_user.id
     
+    # Логируем взаимодействие
+    if DATABASE_AVAILABLE and database:
+        database.add_command({
+            'user_id': user.id,
+            'command': f'button_{data}',
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        })
+    
+    # Главное меню
     if data == 'menu':
-        user_status = db.get_user_status(user_id)
+        is_admin = config and user.id in config.ADMIN_IDS
+        
+        keyboard = [
+            [InlineKeyboardButton("💎 Тарифы и подписки", callback_data='plans')],
+            [
+                InlineKeyboardButton("💰 Банк", callback_data='bank'),
+                InlineKeyboardButton("💼 Профиль", callback_data='profile')
+            ],
+            [InlineKeyboardButton("⚙️ Настройки", callback_data='settings')]
+        ]
+        
+        if is_admin:
+            keyboard.append([InlineKeyboardButton("🛠️ АДМИН ПАНЕЛЬ", callback_data='admin_panel')])
+        
         await query.edit_message_text(
-            f"🏠 **ГЛАВНОЕ МЕНЮ**\nСтатус: {user_status['status']}",
-            reply_markup=get_main_menu_keyboard(user_id)
+            "🏠 **ГЛАВНОЕ МЕНЮ**\n\nВыберите действие:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
         )
     
+    # Админ панель
     elif data == 'admin_panel':
-        # Отправляем админ-панель как новое сообщение
+        if not config or user.id not in config.ADMIN_IDS:
+            await query.edit_message_text("⛔️ Доступ запрещен.")
+            return
+        
         keyboard = [
-            [InlineKeyboardButton("Статистика", callback_data='admin_stats'),
-             InlineKeyboardButton("Сброс статистики", callback_data='admin_reset_stats')],
-            [InlineKeyboardButton("Управление пользователями", callback_data='admin_user_manage')],
-            [InlineKeyboardButton("Назад в меню", callback_data='menu')]
+            [InlineKeyboardButton("📊 Статистика", callback_data='admin_stats'),
+             InlineKeyboardButton("🔄 Сброс", callback_data='admin_reset_stats')],
+            [InlineKeyboardButton("👥 Пользователи", callback_data='admin_users')],
+            [InlineKeyboardButton("⬅️ Назад в меню", callback_data='menu')]
         ]
+        
         await query.edit_message_text(
-            "🛠️ **АДМИН ПАНЕЛЬ**",
+            "🛠️ **АДМИН ПАНЕЛЬ**\n\nВыберите действие:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    # Админ статистика
+    elif data == 'admin_stats':
+        if not config or user.id not in config.ADMIN_IDS:
+            await query.edit_message_text("⛔️ Доступ запрещен.")
+            return
+        
+        if DATABASE_AVAILABLE and database:
+            status = database.get_status()
+            users = database.get_users()
+            commands = database.get_commands(limit=1000)
+            
+            text = (
+                "📊 **СТАТИСТИКА БОТА**\n\n"
+                f"👥 Всего пользователей: {len(users)}\n"
+                f"📝 Всего команд: {len(commands)}\n"
+                f"⚡ Статус: {status.get('status', 'unknown')}\n"
+                f"🕐 Обновлено: {datetime.now(timezone.utc).strftime('%H:%M:%S')}"
+            )
+        else:
+            text = "📊 **СТАТИСТИКА**\n\nБаза данных недоступна"
+        
+        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data='admin_panel')]]
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    # Профиль
+    elif data == 'profile':
+        if DATABASE_AVAILABLE and database:
+            text = (
+                f"💼 **ПРОФИЛЬ**\n\n"
+                f"👤 ID: {user.id}\n"
+                f"📝 Username: @{user.username or 'не указан'}\n"
+                f"👋 Имя: {user.first_name}"
+            )
+        else:
+            text = "💼 **ПРОФИЛЬ**\n\nБаза данных недоступна"
+        
+        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data='menu')]]
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    # Статус
+    elif data == 'status':
+        if DATABASE_AVAILABLE and database:
+            status = database.get_status()
+            text = (
+                f"📊 **Статус системы**\n\n"
+                f"👥 Пользователей: {status.get('total_users', 0)}\n"
+                f"📝 Команд: {status.get('total_commands', 0)}\n"
+                f"⚡ Статус: {status.get('status', 'unknown')}"
+            )
+        else:
+            text = "📊 **Статус**\n\nРабота без БД"
+        
+        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data='menu')]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    
+    # Trade
+    elif data == 'trade':
+        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data='menu')]]
+        await query.edit_message_text(
+            "💰 **Trade**\n\n"
+            "Ваше намерение торговли записано в систему.",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
-    elif data == 'profile':
-        user_status = db.get_user_status(user_id)
+    # Stop
+    elif data == 'stop':
+        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data='menu')]]
         await query.edit_message_text(
-            f"💼 **ПРОФИЛЬ**\n"
-            f"ID: {user_id}\n"
-            f"Статус: {user_status['status']}\n"
-            f"Тариф: {user_status['plan']}",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Назад", callback_data='menu')]
-            ])
+            "🛑 **Stop**\n\n"
+            "Команда остановки выполнена.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
+    # Прочие кнопки
     else:
+        keyboard = [[InlineKeyboardButton("⬅️ Назад в меню", callback_data='menu')]]
         await query.edit_message_text(
             f"🚧 Функция '{data}' в разработке",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Назад в меню", callback_data='menu')]
-            ])
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-# Настройка команд бота
+
+# --- Обработчик неизвестных команд ---
+
+async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик неизвестных команд"""
+    await update.message.reply_text(
+        "❓ Неизвестная команда.\n\n"
+        "Доступные команды:\n"
+        "/start - Начать работу\n"
+        "/status - Статус системы\n"
+        "/trade - Записать намерение торговли\n"
+        "/stop - Остановить операции"
+    )
+
+
+# --- Обработчик ошибок ---
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик ошибок"""
+    logger.error(f"Update {update} caused error {context.error}")
+
+
+# --- Основная функция ---
+
 async def setup_commands(application):
+    """Настройка команд бота для меню"""
     commands = [
         BotCommand("start", "🏠 Главное меню"),
+        BotCommand("status", "📊 Статус системы"),
+        BotCommand("trade", "💰 Записать намерение торговли"),
+        BotCommand("stop", "🛑 Остановить операции"),
         BotCommand("admin", "🛠️ Админ панель")
     ]
     await application.bot.set_my_commands(commands)
+    logger.info("✅ Команды бота настроены")
 
-# Основная функция
+
 def main():
-    if not BOT_TOKEN:
-        logger.error("❌ BOT_TOKEN не найден!")
+    """Запуск бота"""
+    logger.info("=" * 60)
+    logger.info("🚀 Запуск Crypto Signals Bot Interface")
+    logger.info("=" * 60)
+    
+    # Проверка наличия необходимых библиотек
+    if not TELEGRAM_AVAILABLE:
+        logger.error("❌ python-telegram-bot не установлен. Установите: pip install python-telegram-bot")
         return
     
-    # Создаем Application (без use_context!)
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Проверка переменных окружения
+    try:
+        check_environment()
+    except Exception as e:
+        logger.error(f"❌ Ошибка проверки окружения: {e}")
+        return
     
-    # Добавляем обработчики
+    # Валидация конфигурации
+    if CONFIG_AVAILABLE and config:
+        try:
+            Config.validate()
+            logger.info("✅ Конфигурация валидна")
+        except ValueError as e:
+            logger.error(f"❌ Ошибка конфигурации: {e}")
+            return
+    
+    if not BOT_TOKEN:
+        logger.error("❌ BOT_TOKEN не найден в переменных окружения")
+        return
+    
+    logger.info(f"🤖 BOT_TOKEN: {BOT_TOKEN[:10]}...")
+    logger.info(f"💾 Database: {'Available' if DATABASE_AVAILABLE else 'Unavailable'}")
+    logger.info(f"⚙️ Config: {'Available' if CONFIG_AVAILABLE else 'Unavailable'}")
+    
+    # Создаем приложение с post_init callback
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(setup_commands)
+        .build()
+    )
+    
+    # Регистрируем обработчики команд
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("trade", trade_command))
+    application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("admin", admin_command))
+    
+    # Регистрируем обработчик кнопок
     application.add_handler(CallbackQueryHandler(button_handler))
     
-    # Настраиваем команды при запуске
-    application.post_init(setup_commands)
+    # Обработчик неизвестных команд
+    application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
     
-    logger.info("🚀 Бот запускается...")
+    # Обработчик ошибок
+    application.add_error_handler(error_handler)
     
-    # Запускаем бота
-    application.run_polling()
+    logger.info("✅ Bot Interface готов к запуску")
+    logger.info("=" * 60)
+    
+    # Запускаем polling
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+class BotInterface:
+    """Класс для запуска бота из других модулей"""
+    
+    def __init__(self, token: str = None):
+        self.token = token or BOT_TOKEN
+        
+        if not self.token:
+            raise ValueError("BOT_TOKEN не предоставлен")
+    
+    def run(self):
+        """Запустить бота"""
+        global BOT_TOKEN
+        BOT_TOKEN = self.token
+        main()
+
 
 if __name__ == '__main__':
     main()
