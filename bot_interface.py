@@ -429,8 +429,13 @@ def main():
     logger.info(f"💾 Database: {'Available' if DATABASE_AVAILABLE else 'Unavailable'}")
     logger.info(f"⚙️ Config: {'Available' if CONFIG_AVAILABLE else 'Unavailable'}")
     
-    # Создаем приложение
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Создаем приложение с post_init callback
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(setup_commands)
+        .build()
+    )
     
     # Регистрируем обработчики команд
     application.add_handler(CommandHandler("start", start_command))
@@ -447,9 +452,6 @@ def main():
     
     # Обработчик ошибок
     application.add_error_handler(error_handler)
-    
-    # Настраиваем команды бота
-    application.post_init = setup_commands
     
     logger.info("✅ Bot Interface готов к запуску")
     logger.info("=" * 60)
