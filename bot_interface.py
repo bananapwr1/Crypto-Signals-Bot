@@ -35,14 +35,15 @@ MOSCOW_TZ = timezone(timedelta(hours=3))
 POCKET_OPTION_REF_LINK = "https://pocket-friends.com/r/ugauihalod"
 PROMO_CODE = "FRIENDUGAUIHALOD"
 
-# Команды бота
+# Команды бота (must be lowercase, alphanumeric and underscores only)
 DEFAULT_BOT_COMMANDS = [
     ("start", "📱 Главное меню"),
+    ("help", "❓ Помощь"),
     ("plans", "💼 Тарифы и подписки"),
     ("bank", "💰 Управление банком"),
-    ("autotrade", "🤖 Автоторговля (VIP)"),
+    ("autotrade", "🤖 Автоторговля"),
     ("signals", "📡 Сигналы Short/Long"),
-    ("faq", "❓ Помощь"),
+    ("status", "📊 Статус торговли"),
 ]
 
 # Тарифные планы
