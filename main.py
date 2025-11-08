@@ -20,12 +20,13 @@ from bot_interface import (
     # Экспорт основных компонентов для совместимости
     start_command,
     status_command,
-    trade_command,
-    stop_command,
-    admin_command,
-    button_handler,
-    unknown_command,
-    error_handler,
+    plans_command,
+    autotrade_command,
+    signals_command,
+    bank_command,
+    faq_command,
+    admin_stats_command,
+    button_callback,
     setup_commands
 )
 
@@ -36,12 +37,13 @@ __all__ = [
     'BotInterface',
     'start_command',
     'status_command',
-    'trade_command',
-    'stop_command',
-    'admin_command',
-    'button_handler',
-    'unknown_command',
-    'error_handler',
+    'plans_command',
+    'autotrade_command',
+    'signals_command',
+    'bank_command',
+    'faq_command',
+    'admin_stats_command',
+    'button_callback',
     'setup_commands'
 ]
 
