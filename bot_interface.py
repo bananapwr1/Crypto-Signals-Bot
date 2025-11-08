@@ -36,6 +36,7 @@ POCKET_OPTION_REF_LINK = "https://pocket-friends.com/r/ugauihalod"
 PROMO_CODE = "FRIENDUGAUIHALOD"
 
 # Команды бота (must be lowercase, alphanumeric and underscores only)
+# Telegram API требует: ^[a-z0-9_]{1,32}$ (только строчные буквы, цифры, подчеркивание)
 DEFAULT_BOT_COMMANDS = [
     ("start", "📱 Главное меню"),
     ("help", "❓ Помощь"),
@@ -45,6 +46,14 @@ DEFAULT_BOT_COMMANDS = [
     ("signals", "📡 Сигналы Short/Long"),
     ("status", "📊 Статус торговли"),
 ]
+
+# Валидация команд при загрузке модуля
+import re
+_cmd_pattern = re.compile(r'^[a-z0-9_]{1,32}$')
+for _cmd, _desc in DEFAULT_BOT_COMMANDS:
+    if not _cmd_pattern.match(_cmd):
+        raise ValueError(f"КРИТИЧЕСКАЯ ОШИБКА: Невалидная команда '{_cmd}'! "
+                        f"Telegram API требует lowercase [a-z0-9_]{{1,32}}")
 
 # Тарифные планы
 SUBSCRIPTION_PLANS = {
@@ -586,11 +595,29 @@ async def god_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 # ===== ОСНОВНАЯ ФУНКЦИЯ =====
 
 async def setup_commands(application):
-    """Установка команд бота"""
-    await application.bot.set_my_commands([
-        BotCommand(command, description) for command, description in DEFAULT_BOT_COMMANDS
-    ])
-    logger.info("✅ Команды бота настроены")
+    """Установка команд бота с валидацией"""
+    import re
+    command_pattern = re.compile(r'^[a-z0-9_]{1,32}$')
+    
+    # Валидация команд перед регистрацией
+    valid_commands = []
+    for command, description in DEFAULT_BOT_COMMANDS:
+        if command_pattern.match(command):
+            valid_commands.append(BotCommand(command, description))
+            logger.info(f"✅ Команда /{command} валидна")
+        else:
+            logger.error(f"❌ ОШИБКА: Команда /{command} невалидна! Должна быть lowercase [a-z0-9_]")
+    
+    if not valid_commands:
+        logger.error("❌ Нет валидных команд для регистрации!")
+        return
+    
+    try:
+        await application.bot.set_my_commands(valid_commands)
+        logger.info(f"✅ Зарегистрировано {len(valid_commands)} команд бота")
+    except Exception as e:
+        logger.error(f"❌ Ошибка регистрации команд: {e}")
+        raise
 
 def main() -> None:
     """Запуск бота"""
