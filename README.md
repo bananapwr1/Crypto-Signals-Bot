@@ -75,13 +75,14 @@ python app.py
 
 ```
 .
-├── bot_interface.py     # Основной файл бота (ИСПРАВЛЕН)
-├── bot_backup.py        # Резервная копия оригинального main.py
-├── run_bot.py           # Точка запуска бота
+├── bot_interface.py     # Основной файл бота с полной логикой интерфейса
+├── main.py              # Точка входа, импортирует из bot_interface.py
+├── bot_backup.py        # Резервная копия простого бота
+├── run_bot.py           # Альтернативная точка запуска бота
 ├── app.py               # Flask админ-панель
 ├── database.py          # Интерфейс для работы с Supabase
 ├── config.py            # Конфигурация (ИСПРАВЛЕН)
-├── requirements.txt     # Зависимости Python
+├── requirements.txt     # Зависимости Python (ИСПРАВЛЕН)
 ├── .env                 # Переменные окружения (создайте сами)
 └── README.md            # Этот файл
 ```
@@ -118,10 +119,14 @@ TELEGRAM_TOKEN = os.getenv('BOT_TOKEN')  # ✅
 
 - **Python 3.11+**
 - **python-telegram-bot 20.7** - Telegram Bot API
-- **Flask 3.0** - Веб-фреймворк для админ-панели
-- **Supabase 2.3** - База данных
-- **python-dotenv** - Загрузка переменных окружения
-- **requests** - HTTP запросы
+- **requests 2.31.0** - HTTP запросы для Supabase REST API
+- **python-dotenv 1.0.0** - Загрузка переменных окружения
+
+**✅ БЕЗ ТЯЖЁЛЫХ ЗАВИСИМОСТЕЙ:**
+- ❌ Нет pandas, numpy, matplotlib
+- ❌ Нет Flask (убран для облегчения)
+- ❌ Нет supabase SDK (используется прямой REST API)
+- ✅ Только легковесные библиотеки для максимальной производительности
 
 ## 📊 База данных Supabase
 
@@ -160,12 +165,36 @@ TELEGRAM_TOKEN = os.getenv('BOT_TOKEN')  # ✅
 
 ## 🚀 Деплой на BotHost.ru
 
-1. Загрузите файлы на BotHost.ru
-2. Установите переменные окружения в панели:
-   - `BOT_TOKEN`
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-3. Запустите бота: `python run_bot.py`
+### Шаг 1: Загрузка файлов
+Загрузите на BotHost.ru только необходимые файлы:
+- `bot_interface.py` - основной файл бота
+- `main.py` - точка входа
+- `run_bot.py` - альтернативная точка запуска
+- `requirements.txt` - зависимости (только 3 библиотеки!)
+- `.env` - переменные окружения (или используйте панель BotHost)
+
+### Шаг 2: Установка переменных окружения
+В панели BotHost.ru установите:
+- `BOT_TOKEN` - токен вашего Telegram бота
+- `NEXT_PUBLIC_SUPABASE_URL` - URL вашего Supabase проекта
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - анонимный ключ Supabase
+- `ADMIN_USER_ID` - ваш Telegram ID для админ-команд
+- `SUPPORT_CONTACT` - контакт поддержки (опционально)
+
+### Шаг 3: Запуск
+```bash
+python run_bot.py
+```
+или
+```bash
+python main.py
+```
+
+### Преимущества для BotHost.ru:
+- ✅ **Быстрый запуск**: только 3 легковесные зависимости
+- ✅ **Минимум памяти**: нет pandas/numpy/matplotlib
+- ✅ **Стабильность**: без тяжёлых ML библиотек
+- ✅ **Масштабируемость**: архитектура интерфейс-ядро
 
 ## 🔍 Проверка работы
 
@@ -186,15 +215,42 @@ python -c "import bot_interface; bot_interface.check_environment(); print('✅ B
 
 ## ⚠️ Что удалено
 
-Из репозитория удалены все файлы с торговой логикой:
+Из репозитория удалены все файлы с торговой логикой и тяжёлые зависимости:
+
+**Файлы:**
 - ❌ `strategy_analyzer.py`
 - ❌ `strategies/`
 - ❌ `trading/`
 - ❌ `analysis/`
 - ❌ `signals/`
-- ❌ Все ML/AI зависимости (pandas, numpy, sklearn, tensorflow)
+
+**Зависимости:**
+- ❌ pandas, numpy - обработка данных
+- ❌ matplotlib - графики
+- ❌ sklearn, tensorflow - машинное обучение
+- ❌ yfinance - получение рыночных данных
+- ❌ Flask - веб-фреймворк
+- ❌ supabase SDK - заменён на прямые REST API вызовы
+
+**Архитектура:**
+Бот теперь работает только как **интерфейс**, сохраняя команды пользователей в Supabase.
+Вся торговая логика и анализ выполняются отдельным **торговым ядром**.
 
 ## 📝 Changelog
+
+### v2.2.0 - Lightweight Interface (Current)
+- ✅ **УДАЛЕНЫ ВСЕ ТЯЖЁЛЫЕ ЗАВИСИМОСТИ**: pandas, numpy, matplotlib, sklearn, tensorflow
+- ✅ **ОПТИМИЗИРОВАН requirements.txt**: только 3 легковесные библиотеки
+- ✅ **Прямой REST API**: Supabase SDK заменён на requests для минимизации зависимостей
+- ✅ **Полный интерфейс сохранён**: все команды, кнопки и меню работают
+- ✅ **Готов к продакшену**: оптимизирован для BotHost.ru и других облачных платформ
+- ✅ **Архитектура интерфейс-ядро**: бот только принимает команды, ядро их обрабатывает
+
+### v2.1.0 - Interface Logic Consolidation
+- ✅ Исправлена ошибка в requirements.txt (удален shell command синтаксис)
+- ✅ Консолидирована логика интерфейса: main.py теперь импортирует из bot_interface.py
+- ✅ Устранено дублирование кода (462 строки удалены из main.py)
+- ✅ Сохранена обратная совместимость для всех точек входа
 
 ### v2.0.0 - Clean Interface
 - ✅ Удалена вся торговая логика и аналитика
