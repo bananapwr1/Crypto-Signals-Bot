@@ -5,7 +5,7 @@ bot_interface.py - ИСПРАВЛЕННЫЙ Telegram интерфейс бота
 
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 # Загрузка переменных окружения
@@ -77,14 +77,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             'user_id': user.id,
             'username': user.username or f'user_{user.id}',
             'first_name': user.first_name,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         })
         
         # Логируем команду
         database.add_command({
             'user_id': user.id,
             'command': 'start',
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         })
     
     # Проверяем является ли пользователь админом
@@ -120,7 +120,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         database.add_command({
             'user_id': user.id,
             'command': 'status',
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         })
         
         # Получаем статус из базы
@@ -146,7 +146,7 @@ async def trade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         database.add_command({
             'user_id': user.id,
             'command': 'trade',
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'data': {'intent': 'trade_request'}
         })
     
@@ -167,7 +167,7 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         database.add_command({
             'user_id': user.id,
             'command': 'stop',
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'data': {'intent': 'stop_request'}
         })
     
@@ -193,7 +193,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         database.add_command({
             'user_id': user.id,
             'command': 'admin',
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         })
     
     keyboard = [
@@ -224,7 +224,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         database.add_command({
             'user_id': user.id,
             'command': f'button_{data}',
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         })
     
     # Главное меню
@@ -284,7 +284,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 f"👥 Всего пользователей: {len(users)}\n"
                 f"📝 Всего команд: {len(commands)}\n"
                 f"⚡ Статус: {status.get('status', 'unknown')}\n"
-                f"🕐 Обновлено: {datetime.utcnow().strftime('%H:%M:%S')}"
+                f"🕐 Обновлено: {datetime.now(timezone.utc).strftime('%H:%M:%S')}"
             )
         else:
             text = "📊 **СТАТИСТИКА**\n\nБаза данных недоступна"

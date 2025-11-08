@@ -4,7 +4,7 @@ run_bot.py - Простая точка запуска для бота
 """
 
 import logging
-from bot_interface import BotInterface, main
+from bot_interface import main
 
 # Настройка логирования
 logging.basicConfig(

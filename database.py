@@ -5,7 +5,7 @@ database.py - Минимальный интерфейс для работы с S
 
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
 from dotenv import load_dotenv
 
@@ -74,7 +74,7 @@ class DatabaseManager:
                 # Обновляем
                 self.client.table('users').update({
                     'username': username,
-                    'updated_at': datetime.utcnow().isoformat()
+                    'updated_at': datetime.now(timezone.utc).isoformat()
                 }).eq('user_id', user_id).execute()
                 logger.info(f"✅ Пользователь {user_id} обновлен")
             else:
@@ -82,7 +82,7 @@ class DatabaseManager:
                 self.client.table('users').insert({
                     'user_id': user_id,
                     'username': username,
-                    'created_at': datetime.utcnow().isoformat()
+                    'created_at': datetime.now(timezone.utc).isoformat()
                 }).execute()
                 logger.info(f"✅ Пользователь {user_id} создан")
             
@@ -109,7 +109,7 @@ class DatabaseManager:
             self.client.table('commands').insert({
                 'user_id': str(command_dict.get('user_id')),
                 'command': command_dict.get('command'),
-                'timestamp': command_dict.get('timestamp', datetime.utcnow().isoformat()),
+                'timestamp': command_dict.get('timestamp', datetime.now(timezone.utc).isoformat()),
                 'data': command_dict.get('data', {})
             }).execute()
             logger.info(f"✅ Команда {command_dict.get('command')} записана")
@@ -173,14 +173,18 @@ class DatabaseManager:
             }
         
         try:
-            users_count = len(self.get_users())
-            commands_count = len(self.get_commands(limit=1000))
+            # Efficient count queries using Supabase
+            users_response = self.client.table('users').select('*', count='exact').execute()
+            users_count = users_response.count if hasattr(users_response, 'count') else len(users_response.data)
+            
+            commands_response = self.client.table('commands').select('*', count='exact').execute()
+            commands_count = commands_response.count if hasattr(commands_response, 'count') else len(commands_response.data)
             
             return {
                 'total_users': users_count,
                 'total_commands': commands_count,
                 'status': 'active',
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             }
         except Exception as e:
             logger.error(f"❌ Ошибка get_status: {e}")
@@ -209,14 +213,14 @@ class DatabaseManager:
                 # Обновляем
                 self.client.table('bot_status').update({
                     'value': str(value),
-                    'updated_at': datetime.utcnow().isoformat()
+                    'updated_at': datetime.now(timezone.utc).isoformat()
                 }).eq('key', key).execute()
             else:
                 # Создаем
                 self.client.table('bot_status').insert({
                     'key': key,
                     'value': str(value),
-                    'updated_at': datetime.utcnow().isoformat()
+                    'updated_at': datetime.now(timezone.utc).isoformat()
                 }).execute()
             
             logger.info(f"✅ Статус {key} обновлен")

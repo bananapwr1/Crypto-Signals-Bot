@@ -5,7 +5,7 @@ app.py - Flask админ-панель для просмотра статуса 
 
 import os
 from flask import Flask, render_template_string, jsonify
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Безопасный импорт database
 try:
@@ -275,7 +275,7 @@ def api_status():
             'status': 'stub_mode',
             'total_users': 0,
             'total_commands': 0,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         })
     
     status = database.get_status()
@@ -310,19 +310,22 @@ def health():
     return jsonify({
         'status': 'healthy',
         'database': 'available' if DATABASE_AVAILABLE and database else 'unavailable',
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     })
 
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+    # Allow host configuration for security - default to localhost, use 0.0.0.0 for cloud deployment
+    host = os.getenv('FLASK_HOST', '127.0.0.1')
     
     print("=" * 60)
     print("🚀 Flask Admin Panel запускается...")
+    print(f"📡 Host: {host}")
     print(f"📡 Порт: {port}")
     print(f"🔧 Debug: {debug}")
     print(f"💾 Database: {'Available' if DATABASE_AVAILABLE else 'Unavailable'}")
     print("=" * 60)
     
-    app.run(host='0.0.0.0', port=port, debug=debug)
+    app.run(host=host, port=port, debug=debug)

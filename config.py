@@ -27,7 +27,7 @@ class Config:
     ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY')
     
     # Настройки бота
-    ADMIN_IDS = [7746862973]  # ID администратора
+    ADMIN_IDS = [int(id.strip()) for id in os.getenv('ADMIN_IDS', '7746862973').split(',') if id.strip()]
     SUPPORT_CONTACT = "@banana_pwr"
     ENABLED_COMMANDS = ['start', 'status', 'trade', 'stop']
     
