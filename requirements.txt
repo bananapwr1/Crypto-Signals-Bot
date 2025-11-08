@@ -1,5 +1,9 @@
+cat > requirements.txt <<'EOF'
 python-dotenv==1.0.0
 python-telegram-bot==20.7
 supabase==2.3.1
 requests==2.31.0
 flask==3.0.0
+PyJWT==2.8.0
+gunicorn==21.2.0
+EOF
