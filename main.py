@@ -140,16 +140,18 @@ def main():
         logger.error("❌ BOT_TOKEN не найден!")
         return
     
-    # Создаем Application (без use_context!)
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Создаем Application с post_init callback (без use_context!)
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(setup_commands)
+        .build()
+    )
     
     # Добавляем обработчики
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CallbackQueryHandler(button_handler))
-    
-    # Настраиваем команды при запуске
-    application.post_init(setup_commands)
     
     logger.info("🚀 Бот запускается...")
     
