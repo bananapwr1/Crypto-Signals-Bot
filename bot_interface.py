@@ -6,6 +6,7 @@ bot_interface.py - Полный Telegram интерфейс бота
 import os
 import logging
 import asyncio
+import re
 from datetime import datetime, timedelta, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
@@ -47,13 +48,18 @@ DEFAULT_BOT_COMMANDS = [
     ("status", "📊 Статус торговли"),
 ]
 
-# Валидация команд при загрузке модуля
-import re
+# Валидация команд при загрузке модуля (предупреждение, не критическая ошибка)
 _cmd_pattern = re.compile(r'^[a-z0-9_]{1,32}$')
+_invalid_commands = []
 for _cmd, _desc in DEFAULT_BOT_COMMANDS:
     if not _cmd_pattern.match(_cmd):
-        raise ValueError(f"КРИТИЧЕСКАЯ ОШИБКА: Невалидная команда '{_cmd}'! "
-                        f"Telegram API требует lowercase [a-z0-9_]{{1,32}}")
+        _invalid_commands.append(_cmd)
+
+if _invalid_commands:
+    # Логируем предупреждение, но не блокируем загрузку модуля
+    import sys
+    print(f"⚠️ ПРЕДУПРЕЖДЕНИЕ: Найдены невалидные команды: {_invalid_commands}", file=sys.stderr)
+    print(f"⚠️ Telegram API требует lowercase [a-z0-9_]{{1,32}}", file=sys.stderr)
 
 # Тарифные планы
 SUBSCRIPTION_PLANS = {
@@ -596,17 +602,13 @@ async def god_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def setup_commands(application):
     """Установка команд бота с валидацией"""
-    import re
-    command_pattern = re.compile(r'^[a-z0-9_]{1,32}$')
-    
-    # Валидация команд перед регистрацией
+    # Валидация и фильтрация команд
     valid_commands = []
     for command, description in DEFAULT_BOT_COMMANDS:
-        if command_pattern.match(command):
+        if _cmd_pattern.match(command):
             valid_commands.append(BotCommand(command, description))
-            logger.info(f"✅ Команда /{command} валидна")
         else:
-            logger.error(f"❌ ОШИБКА: Команда /{command} невалидна! Должна быть lowercase [a-z0-9_]")
+            logger.warning(f"⚠️ Пропущена невалидная команда: /{command}")
     
     if not valid_commands:
         logger.error("❌ Нет валидных команд для регистрации!")
@@ -617,7 +619,8 @@ async def setup_commands(application):
         logger.info(f"✅ Зарегистрировано {len(valid_commands)} команд бота")
     except Exception as e:
         logger.error(f"❌ Ошибка регистрации команд: {e}")
-        raise
+        # Не поднимаем исключение - позволяем боту продолжить работу
+        logger.warning("⚠️ Бот продолжит работу без регистрации команд в меню")
 
 def main() -> None:
     """Запуск бота"""
