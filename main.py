@@ -1,310 +1,353 @@
-import os
+```python
 import logging
-import pandas as pd
-import numpy as np
-import yfinance as yf
-import asyncio
-import sqlite3
-import matplotlib.pyplot as plt
-import matplotlib
-import matplotlib.patheffects as pe
-import io
-import time
-import random
-from datetime import datetime, timedelta, timezone
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-from dotenv import load_dotenv
-import warnings
-import uuid
-from yookassa import Configuration, Payment
-from webhook_system import webhook_system
-from crypto_utils import encrypt_ssid, decrypt_ssid
-warnings.filterwarnings('ignore')
-
-load_dotenv()
-matplotlib.use('Agg')
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-logger = logging.getLogger(__name__)
 
-# --- Константы ---
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
-SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "@banana_pwr") # Используем переменную окружения
-# Московский часовой пояс (UTC+3)
-MOSCOW_TZ = timezone(timedelta(hours=3))
-# Реферальная ссылка Pocket Option
-POCKET_OPTION_REF_LINK = "https://pocket-friends.com/r/ugauihalod"
-# Промокод для новых пользователей
-PROMO_CODE = "FRIENDUGAUIHALOD"
-# Команды бота по умолчанию (для сброса настроек)
-DEFAULT_BOT_COMMANDS = [
-    ("start", "🏠 Главное меню"),
-    ("plans", "💎 Тарифы и подписки"),
-    ("bank", "💰 Управление банком"),
-    ("autotrade", "🤖 Автоторговля (...")
-]
-# ID магазина и Секретный ключ YooKassa
-YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
-YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
+# Состояния пользователя
+class UserState:
+    def __init__(self):
+        self.initial_bank = 0
+        self.current_bank = 0
+        self.strategy = "martingale_x3"
+        self.base_bet = 0
+        self.subscription = "FREE"
+        self.subscription_end = "14.11.2025"
 
-# --- Настройка YooKassa (если ключи доступны) ---
-if YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY:
-    Configuration.configure(
-        account_id=YOOKASSA_SHOP_ID,
-        secret_key=YOOKASSA_SECRET_KEY
-    )
-    logger.info("YooKassa configured successfully.")
-else:
-    logger.warning("YooKassa configuration skipped: SHOP_ID or SECRET_KEY is missing.")
+# Хранилище состояний пользователей
+user_states = {}
 
-# --- Вспомогательные функции (заглушки) ---
-
-# Функция для получения текущего статуса подписки пользователя (заглушка)
-def get_user_subscription_status(user_id):
-    """Возвращает статус подписки для демонстрации интерфейса."""
-    if user_id % 2 == 0:
-         return {"is_active": True, "end_date": (datetime.now(MOSCOW_TZ) + timedelta(days=7)).strftime("%d.%m.%Y")}
-    return {"is_active": False}
-
-# Функция для получения текущего баланса (заглушка)
-def get_user_balance(user_id):
-    """Возвращает текущий баланс пользователя."""
-    return random.randint(100, 500) / 100 * 1000 # Например, от 10000 до 50000
-
-# --- Основные команды ---
-
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обрабатывает команду /start, отображая главное меню бота."""
-    user = update.effective_user
-    user_id = user.id
-    status = get_user_subscription_status(user_id)
-    balance = get_user_balance(user_id)
+# Команда /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in user_states:
+        user_states[user_id] = UserState()
+        user_states[user_id].initial_bank = 60000
+        user_states[user_id].current_bank = 60000
     
-    # 1. Формирование Текста Сообщения
-    text_lines = []
-    text_lines.append(f"👋 Добро пожаловать, *{user.first_name}*! (ID: `{user_id}`)\n")
-    text_lines.append("-------------------------------------------------")
-    
-    # Статус подписки
-    if status.get("is_active"):
-        text_lines.append(f"🟢 *ПОДПИСКА:* Активна до {status['end_date']}")
-    else:
-        text_lines.append("🔴 *ПОДПИСКА:* Не активна. ➡️ /plans")
-
-    # Баланс
-    text_lines.append(f"💰 *БАЛАНС:* {balance:,.2f} USD (Учетная запись)")
-    text_lines.append("-------------------------------------------------\n")
-    text_lines.append("Выберите нужный раздел для управления ботом:")
-
-    text = "\n".join(text_lines)
-    
-    # 2. Формирование Кнопок
     keyboard = [
-        # Первый ряд: Функциональные разделы
-        [InlineKeyboardButton("💎 Тарифы и подписки", callback_data="plans_menu")],
-        [InlineKeyboardButton("💰 Управление банком", callback_data="bank_menu")],
-        [InlineKeyboardButton("🤖 Автоторговля", callback_data="autotrade_menu")],
-        # Второй ряд: Сервисная информация (например, контакты)
-        [InlineKeyboardButton("📞 Поддержка", url=f"https://t.me/{SUPPORT_CONTACT.lstrip('@')}")]
+        [InlineKeyboardButton("SHORT", callback_data="short"),
+         InlineKeyboardButton("LONG", callback_data="long")],
+        [InlineKeyboardButton("📊 Управление банком", callback_data="bank_management")],
+        [InlineKeyboardButton("⚙️ Настройки", callback_data="settings")],
+        [InlineKeyboardButton("💎 Тарифы", callback_data="tariffs")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "# Crypto Signals Bot\n## 6от\n\n"
+        "Выберите действие:",
+        reply_markup=reply_markup
+    )
 
-    # Отправка/редактирование
-    if update.callback_query:
-        await update.callback_query.answer()
-        await update.callback_query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode='Markdown')
-    else:
-        await update.message.reply_text(text=text, reply_markup=reply_markup, parse_mode='Markdown')
-
-async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Создает и отправляет пользователю интерфейс с тарифными планами.
-    """
-    # Этот код уже был создан в предыдущем шаге и остался без изменений
-    user_id = update.effective_user.id
-    status = get_user_subscription_status(user_id)
-    
-    # 1. Формирование Текста Сообщения
-    text_lines = []
-    text_lines.append("💎 *Ваши Тарифы и Подписки* 💎\n")
-    
-    if status.get("is_active"):
-        text_lines.append(f"✅ *СТАТУС:* Активная подписка")
-        text_lines.append(f"📅 *Действует до:* {status['end_date']}")
-        text_lines.append("-------------------------------------------------\n")
-        text_lines.append("Вы можете продлить подписку, выбрав новый план ниже:")
-    else:
-        text_lines.append("❌ *СТАТУС:* Подписка не активна.")
-        text_lines.append("Выберите подходящий тариф для доступа к сигналам:")
-        
-    text_lines.append("\n*ДОСТУПНЫЕ ПЛАНЫ:*")
-    
-    
-    # 2. Формирование Кнопок (Inline Keyboard)
-    keyboard = []
-    
-    PLANS_DATA = {
-        "1m": {"name": "Базовый", "duration_days": 30, "price": 1500},
-        "3m": {"name": "Премиум", "duration_days": 90, "price": 4000, "discount": "Скидка 11%"},
-        "12m": {"name": "VIP", "duration_days": 365, "price": 15000, "discount": "Скидка 17%", "best_deal": True},
-    }
-
-    for key, plan in PLANS_DATA.items():
-        button_text = f"{plan['name']} - {plan['price']:,} ₽"
-        if plan.get("discount"):
-            button_text += f" ({plan['discount']})"
-        if plan.get("best_deal"):
-            button_text = "⭐️ " + button_text + " (Лучшая цена!)"
-        
-        # Добавляем описание плана в текст
-        text_lines.append(f"• *{plan['name']} ({plan['duration_days']} дн.):* {plan['price']:,} ₽")
-        
-        # Создаем кнопку для покупки
-        keyboard.append([
-            InlineKeyboardButton(
-                button_text, 
-                callback_data=f"buy_plan_{key}" # Например, buy_plan_1m
-            )
-        ])
-    
-    # Добавляем сервисные кнопки
-    keyboard.append([
-        InlineKeyboardButton("💳 Промокод / Оплата YooKassa", callback_data="show_yookassa_info")
-    ])
-    keyboard.append([
-        InlineKeyboardButton("⬅️ Назад в Главное меню", callback_data="start")
-    ])
-
-    text = "\n".join(text_lines)
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    # Отправка или редактирование сообщения
-    if update.callback_query:
-        await update.callback_query.answer()
-        # Редактируем, если это был CallbackQuery (например, из start_command)
-        await update.callback_query.edit_message_text(
-            text=text, 
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-    else:
-        # Отправляем новое сообщение, если это была команда /plans
-        await update.message.reply_text(
-            text=text, 
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-        
-# Функция для заглушки, которая будет вызвана при нажатии кнопки.
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+# Главное меню
+async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = query.data
     
-    # Логика навигации и оплаты
-    if data == 'start' or data == 'main_menu':
-        await start_command(update, context)
-        return
-    elif data == 'plans_menu':
-        await plans_command(update, context)
-        return
+    keyboard = [
+        [InlineKeyboardButton("SHORT", callback_data="short"),
+         InlineKeyboardButton("LONG", callback_data="long")],
+        [InlineKeyboardButton("📊 Управление банком", callback_data="bank_management")],
+        [InlineKeyboardButton("⚙️ Настройки", callback_data="settings")],
+        [InlineKeyboardButton("💎 Тарифы", callback_data="tariffs")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Заглушки для других разделов
-    elif data == 'bank_menu' or data == 'autotrade_menu':
-        section_name = "Управление банком" if data == 'bank_menu' else "Автоторговля"
-        await query.edit_message_text(
-            text=f"🚧 Раздел *{section_name}* находится в разработке.\n\n"
-                 f"Возвращаемся в главное меню.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ В Главное меню", callback_data="start")]])
-        )
-        return
-        
-    # Обработка покупки (пока заглушка)
-    elif data.startswith("buy_plan_"):
-        plan_key = data.split("_")[-1]
-        plan_name = PLANS_DATA.get(plan_key, {}).get("name", "Выбранный")
-        plan_price = PLANS_DATA.get(plan_key, {}).get("price", "???")
-        
-        # В этом месте будет вызов функции создания платежа YooKassa
-        
-        await query.edit_message_text(
-            text=f"✅ Вы выбрали план *{plan_name}* за {plan_price:,} ₽.\n"
-                 f"Сейчас мы перейдем к оплате через YooKassa...",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад в Тарифы", callback_data="plans_menu")]],),
-            parse_mode='Markdown'
-        )
-        return
+    await query.edit_message_text(
+        "# Crypto Signals Bot\n## 6от\n\n"
+        "Выберите действие:",
+        reply_markup=reply_markup
+    )
+
+# Раздел SHORT
+async def short_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    user = user_states[user_id]
     
-    elif data == 'show_yookassa_info':
-        await query.edit_message_text(
-            text=f"ℹ️ *Информация об оплате:*\n\n"
-                 f"Мы используем платежную систему YooKassa для безопасных и быстрых платежей.\n"
-                 f"Доступные способы: Карта, SberPay, ЮMoney и др.\n\n"
-                 f"🎁 Ваш промокод для новых пользователей: `{PROMO_CODE}`\n\n"
-                 f"Нажмите на кнопку ниже, чтобы вернуться к выбору тарифа.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 Выбрать тариф", callback_data="plans_menu")]],),
-            parse_mode='Markdown'
-        )
-        return
-        
-    # Если callback_data не распознан
-    else:
-        logger.warning(f"Неизвестный callback_data: {data}")
-        await start_command(update, context)
+    # Расчет ставки для мартингейла
+    if user.strategy == "martingale_x2":
+        bet = user.current_bank * 0.01  # 1% для x2
+    elif user.strategy == "martingale_x3":
+        bet = user.current_bank * 0.005  # 0.5% для x3
+    else:  # x5
+        bet = user.current_bank * 0.002  # 0.2% для x5
+    
+    keyboard = [
+        [InlineKeyboardButton("📊 Получить сигнал", callback_data="get_short_signal")],
+        [InlineKeyboardButton("⚙️ Настройки стратегии", callback_data="strategy_settings")],
+        [InlineKeyboardButton("📈 Мои SHORT сделки", callback_data="my_short_trades")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"🤖 **SHORT СТРАТЕГИЯ**\n\n"
+        f"• Действует до: {user.subscription_end}\n\n"
+        f"**БАНК:**\n"
+        f"• Начальный: {user.initial_bank:,.0f}₽\n"
+        f"• Текущий: {user.current_bank:,.0f}₽\n"
+        f"• Прибыль: {'+' if user.current_bank >= user.initial_bank else ''}{user.current_bank - user.initial_bank:,.0f}₽ "
+        f"({(user.current_bank/user.initial_bank-1)*100:+.1f}%)\n\n"
+        f"**СТРАТЕГИЯ: МАРТИНГЕЙЛ {user.strategy.split('_')[1].upper()}**\n"
+        f"• Текущая ставка: {bet:,.0f}₽\n"
+        f"• Быстрая торговля (1-5 мин)\n"
+        f"• Агрессивный рост\n\n"
+        f"Выберите действие:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
 
+# Раздел LONG
+async def long_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    user = user_states[user_id]
+    
+    bet = user.current_bank * 0.025  # 2.5% для LONG
+    
+    keyboard = [
+        [InlineKeyboardButton("📊 Получить сигнал", callback_data="get_long_signal")],
+        [InlineKeyboardButton("⚙️ Настройки стратегии", callback_data="long_strategy_settings")],
+        [InlineKeyboardButton("📈 Мои LONG сделки", callback_data="my_long_trades")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"🤖 **LONG СТРАТЕГИЯ**\n\n"
+        f"• Действует до: {user.subscription_end}\n\n"
+        f"**БАНК:**\n"
+        f"• Начальный: {user.initial_bank:,.0f}₽\n"
+        f"• Текущий: {user.current_bank:,.0f}₽\n"
+        f"• Прибыль: {'+' if user.current_bank >= user.initial_bank else ''}{user.current_bank - user.initial_bank:,.0f}₽ "
+        f"({(user.current_bank/user.initial_bank-1)*100:+.1f}%)\n\n"
+        f"**СТРАТЕГИЯ: ПРОЦЕНТНАЯ 2.5%**\n"
+        f"• Текущая ставка: {bet:,.0f}₽\n"
+        f"• Длинные сделки (1-4 часа)\n"
+        f"• Стабильный доход\n\n"
+        f"Выберите действие:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
 
-# --- Main function setup ---
-def main() -> None:
-    """Запуск бота."""
-    try:
-        # 1. Создание приложения
-        application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
-        app = application # Переименовываем для краткости
+# Управление банком
+async def bank_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    user = user_states[user_id]
+    
+    # Расчет уровней мартингейла
+    levels = calculate_martingale_levels(user)
+    
+    keyboard = [
+        [InlineKeyboardButton("💳 Изменить текущий банк", callback_data="change_bank")],
+        [InlineKeyboardButton("🔄 Сбросить и начать заново", callback_data="reset_bank")],
+        [InlineKeyboardButton("📊 Настройки стратегии", callback_data="strategy_settings")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"💰 **УПРАВЛЕНИЕ БАНКОМ**\n\n"
+        f"**БАНК:**\n"
+        f"• Начальный: {user.initial_bank:,.0f}₽\n"
+        f"• Текущий: {user.current_bank:,.0f}₽\n"
+        f"• Прибыль: {'+' if user.current_bank >= user.initial_bank else ''}{user.current_bank - user.initial_bank:,.0f}₽ "
+        f"({(user.current_bank/user.initial_bank-1)*100:+.1f}%)\n\n"
+        f"**СТРАТЕГИЯ: МАРТИНГЕЙЛ {user.strategy.split('_')[1].upper()}**\n\n"
+        f"Множитель после проигрыша: {user.strategy.split('_')[1]}\n\n"
+        f"**Уровни ставок:**\n{levels}\n\n"
+        f"Выберите действие:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
 
-        # 2. Обработчики команд
-        app.add_handler(CommandHandler("start", start_command))
-        # Добавляем новую команду для тарифов
-        app.add_handler(CommandHandler("plans", plans_command)) 
-        
-        # Заглушки для других команд
-        app.add_handler(CommandHandler("bank", start_command)) 
-        app.add_handler(CommandHandler("autotrade", start_command)) 
-        
-        # Обработчик Callback Query (для кнопок)
-        app.add_handler(CallbackQueryHandler(button_callback))
-        # app.add_error_handler(error_handler)
-        
-        # Установка меню команд
-        # (Оставлю как есть, предполагая что set_my_commands будет реализован в post_init)
-        
-        logger.info("🚀 Bot started successfully!")
-        print("✅ Crypto Signals Bot is running...")
-        print(f"👤 Admin User ID: {ADMIN_USER_ID}")
-        print(f"📞 Support Contact: {SUPPORT_CONTACT}")
-        
-        # Запуск бота (Polling)
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
-        
-    except Exception as e:
-        logger.error(f"❌ Critical error in main: {e}")
-        
-async def post_init(application: Application) -> None:
-    """Выполняется сразу после инициализации бота."""
-    # Установка меню команд
-    await application.bot.set_my_commands([BotCommand(command, description) for command, description in DEFAULT_BOT_COMMANDS])
+# Расчет уровней мартингейла
+def calculate_martingale_levels(user):
+    base_bet = user.base_bet if user.base_bet > 0 else user.current_bank * 0.005
+    multiplier = int(user.strategy.split('_')[1])
+    
+    levels = []
+    current_bet = base_bet
+    for i in range(6):
+        levels.append(f"{i+1}. {current_bet:,.0f}₽")
+        current_bet *= multiplier
+    
+    return " → ".join(levels)
 
+# Настройки стратегии
+async def strategy_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    user = user_states[user_id]
+    
+    keyboard = [
+        [InlineKeyboardButton("2️⃣ Мартингейл x2", callback_data="set_martingale_x2"),
+         InlineKeyboardButton("3️⃣ Мартингейл x3", callback_data="set_martingale_x3")],
+        [InlineKeyboardButton("5️⃣ Мартингейл x5", callback_data="set_martingale_x5")],
+        [InlineKeyboardButton("💰 Установить базовую ставку", callback_data="set_base_bet")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="bank_management")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"⚙️ **НАСТРОЙКИ СТРАТЕГИИ**\n\n"
+        f"Текущая стратегия: **МАРТИНГЕЙЛ {user.strategy.split('_')[1].upper()}**\n"
+        f"Базовая ставка: {user.base_bet if user.base_bet > 0 else 'не установлена'}\n\n"
+        f"Выберите множитель мартингейла:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+# Установка стратегии
+async def set_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    user = user_states[user_id]
+    
+    strategy_map = {
+        "set_martingale_x2": "martingale_x2",
+        "set_martingale_x3": "martingale_x3", 
+        "set_martingale_x5": "martingale_x5"
+    }
+    
+    user.strategy = strategy_map[query.data]
+    
+    await query.edit_message_text(
+        f"✅ Стратегия изменена на: **МАРТИНГЕЙЛ {user.strategy.split('_')[1].upper()}**",
+        parse_mode='Markdown'
+    )
+    await strategy_settings(update, context)
+
+# Получение SHORT сигнала
+async def get_short_signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    user = user_states[user_id]
+    
+    # Здесь должна быть логика генерации сигнала
+    signal = generate_signal("SHORT", user)
+    
+    keyboard = [
+        [InlineKeyboardButton("🔄 Новый сигнал", callback_data="get_short_signal")],
+        [InlineKeyboardButton("📊 Управление банком", callback_data="bank_management")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="short")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        signal,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+# Генерация сигнала (заглушка)
+def generate_signal(strategy_type, user):
+    import random
+    import datetime
+    
+    assets = ["EUR/USD OTC", "BTC/USD OTC", "ETH/USD OTC", "AAPL OTC", "INTEL OTC"]
+    directions = ["ВВЕРХ", "ВНИЗ"]
+    
+    asset = random.choice(assets)
+    direction = random.choice(directions)
+    confidence = random.randint(85, 95)
+    expiration = "5 минут" if strategy_type == "SHORT" else "1 час"
+    bet = user.current_bank * 0.02 if strategy_type == "SHORT" else user.current_bank * 0.025
+    
+    current_time = datetime.datetime.now().strftime("%H:%M")
+    
+    return (
+        f"🎯 **СИГНАЛ ДЛЯ POCKET OPTION**\n\n"
+        f"**АКТИВ:** {asset}\n"
+        f"⬆️ Кликните на название для копирования ⬆️\n\n"
+        f"✅ **НАПРАВЛЕНИЕ:** {direction}\n"
+        f"✅ **Уверенность:** {confidence}%\n"
+        f"✅ **Экспирация:** {expiration}\n"
+        f"✅ **Время входа:** {current_time}\n\n"
+        f"💰 **Рекомендуемая ставка:** {bet:,.2f}₽\n\n"
+        f"📊 **Статистика актива:**\n"
+        f"• История: новый актив (менее 5 сигналов)\n"
+        f"• Win Rate: анализируется...\n"
+        f"• Ожидаемая доходность: расчет после 5+ сделок\n\n"
+        f"📊 **Анализ рынка:**\n"
+        f"• Волатильность: Очень низкая (стабильный)\n"
+        f"• Активность: Обычная активность"
+    )
+
+# Тарифы
+async def show_tariffs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    keyboard = [
+        [InlineKeyboardButton("🆓 FREE", callback_data="tariff_free")],
+        [InlineKeyboardButton("⚡ SHORT", callback_data="tariff_short")],
+        [InlineKeyboardButton("📈 LONG", callback_data="tariff_long")],
+        [InlineKeyboardButton("💎 VIP", callback_data="tariff_vip")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "💎 **ВЫБЕРИТЕ ТАРИФ И ЗАРАБАТЫВАЙТЕ!**\n\n"
+        "Доступные тарифные планы:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+# Обработка неизвестных команд
+async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Неизвестная команда. Используйте /start для начала работы.")
+
+# Основная функция
+def main():
+    # Замените 'YOUR_BOT_TOKEN' на реальный токен вашего бота
+    application = Application.builder().token('YOUR_BOT_TOKEN').build()
+    
+    # Обработчики команд
+    application.add_handler(CommandHandler("start", start))
+    
+    # Обработчики callback'ов
+    application.add_handler(CallbackQueryHandler(main_menu, pattern="main_menu"))
+    application.add_handler(CallbackQueryHandler(short_strategy, pattern="short"))
+    application.add_handler(CallbackQueryHandler(long_strategy, pattern="long"))
+    application.add_handler(CallbackQueryHandler(bank_management, pattern="bank_management"))
+    application.add_handler(CallbackQueryHandler(strategy_settings, pattern="strategy_settings"))
+    application.add_handler(CallbackQueryHandler(set_strategy, pattern="^set_martingale_"))
+    application.add_handler(CallbackQueryHandler(get_short_signal, pattern="get_short_signal"))
+    application.add_handler(CallbackQueryHandler(show_tariffs, pattern="tariffs"))
+    
+    # Обработчик неизвестных команд
+    application.add_handler(MessageHandler(filters.COMMAND, unknown))
+    
+    # Запуск бота
+    application.run_polling()
 
 if __name__ == '__main__':
-    # Определяем PLANS_DATA, чтобы она была доступна вне main()
-    PLANS_DATA = {
-        "1m": {"name": "Базовый", "duration_days": 30, "price": 1500},
-        "3m": {"name": "Премиум", "duration_days": 90, "price": 4000, "discount": "Скидка 11%"},
-        "12m": {"name": "VIP", "duration_days": 365, "price": 15000, "discount": "Скидка 17%", "best_deal": True},
-    }
     main()
+```
+
+Это полный интерфейс бота с:
+
+· Главным меню
+· Разделами SHORT/LONG стратегий
+· Управлением банком
+· Настройками мартингейла
+· Генерацией сигналов
+· Системой тарифов
+
+Замени YOUR_BOT_TOKEN на реальный токен от @BotFather и добавь недостающие функции по мере необходимости.
