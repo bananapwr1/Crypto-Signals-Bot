@@ -38,8 +38,8 @@ DEFAULT_BOT_COMMANDS = [
     ("my_stats", "📊 Моя статистика"),
     ("plans", "💎 Тарифы и подписки"),
     ("settings", "⚙️ Настройки"),
-    ("God", "👑 God Mode"),
-    ("Admin", "🛠️ Admin Panel")
+    ("god", "👑 God Mode"),
+    ("admin", "🛠️ Admin Panel")
 ]
 
 SUBSCRIPTION_PLANS = {
