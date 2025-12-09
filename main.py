@@ -1,8 +1,13 @@
 import os
 import logging
-# УДАЛЕНЫ: pandas, numpy, yfinance, sqlite3, matplotlib, matplotlib.patheffects (логика Ядра)
-# УДАЛЕНЫ: yookassa, webhook_system (платежная интеграция)
+import pandas as pd
+import numpy as np
+import yfinance as yf
 import asyncio
+import sqlite3
+import matplotlib.pyplot as plt
+import matplotlib
+import matplotlib.patheffects as pe
 import io
 import time
 import random
@@ -12,18 +17,17 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from dotenv import load_dotenv
 import warnings
 import uuid
-# --- ДОБАВЛЕНЫ для Supabase ---
-from supabase import create_client, Client
-# ---
+from yookassa import Configuration, Payment
+from webhook_system import webhook_system
 from crypto_utils import encrypt_ssid, decrypt_ssid
-
 warnings.filterwarnings('ignore')
 
 load_dotenv()
+matplotlib.use('Agg')
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
-SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "@banana_pwr")
+SUPPORT_CONTACT = "@banana_pwr"
 
 # Московский часовой пояс (UTC+3)
 MOSCOW_TZ = timezone(timedelta(hours=3))
@@ -33,25 +37,6 @@ POCKET_OPTION_REF_LINK = "https://pocket-friends.com/r/ugauihalod"
 
 # Промокод для новых пользователей
 PROMO_CODE = "FRIENDUGAUIHALOD"
-
-# --- SUPABASE НАСТРОЙКА ---
-SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-SUPABASE_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-
-# Глобальная переменная для клиента Supabase
-supabase: Client = None 
-
-def init_supabase():
-    """Инициализация подключения к Supabase."""
-    global supabase
-    if SUPABASE_URL and SUPABASE_KEY:
-        try:
-            supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-            logger.info("✅ Supabase клиент UI-Бота успешно инициализирован.")
-        except Exception as e:
-            logger.error(f"❌ Ошибка подключения Supabase в UI-Бота: {e}")
-    else:
-        logger.error("❌ Переменные Supabase не найдены.")
 
 # Команды бота по умолчанию (для сброса настроек)
 DEFAULT_BOT_COMMANDS = [
@@ -67,7 +52,7 @@ DEFAULT_BOT_COMMANDS = [
     ("help", "❓ Помощь и инструкции"),
 ]
 
-# Система тарифов (СОХРАНЕНА)
+# Система тарифов
 SUBSCRIPTION_PLANS = {
     'short': {
         '1m': 4990,
@@ -105,7 +90,7 @@ NEW_USER_PROMO = {
 
 PAYOUT_PERCENT = 92
 
-# Система мультиязычности (СОХРАНЕНА)
+# Система мультиязычности
 TRANSLATIONS = {
     'ru': {
         'choose_language': '🌍 Выберите язык / Choose language:',
@@ -266,51 +251,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- ГЛОБАЛЬНЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С БАЗОЙ ДАННЫХ (ЗАГЛУШКИ SUPABASE) ---
+# ЮКасса настройки
+YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
+YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
 
-def get_message(key: str, lang_code: str, fallback='ru') -> str:
-    """Извлекает сообщение по ключу из TRANSLATIONS."""
-    return TRANSLATIONS.get(lang_code, TRANSLATIONS[fallback]).get(key, f"ERROR: Key '{key}' not found.")
+# Конфигурация ЮКассы
+if YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY:
+    try:
+        Configuration.configure(YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY)
+        logger.info("✅ YooKassa configured successfully")
+    except Exception as e:
+        logger.error(f"❌ YooKassa configuration failed: {e}")
+else:
+    logger.warning("⚠️ YooKassa credentials not found - payment will use manual mode")
 
-async def get_user_lang_code(user_id: int, default_lang='ru') -> str:
-    """STUB: Получение языка пользователя из Supabase."""
-    if supabase:
-        try:
-            # Здесь будет реальный запрос: 
-            # response = await supabase.table('users').select('language').eq('user_id', user_id).single().execute()
-            # return response.data['language']
-            
-            # Заглушка для UI:
-            return default_lang 
-        except Exception:
-            return default_lang
-    return default_lang
-
-async def get_user_data_from_db(user_id: int):
-    """STUB: Получение всех данных пользователя из Supabase."""
-    if supabase:
-        logger.info(f"DB STUB: Получение всех данных для {user_id} через Supabase.")
-        # Здесь будет реальный запрос. Заглушка возвращает минимальный набор данных:
-        return {
-            'user_id': user_id,
-            'subscription_type': 'vip',
-            'subscription_end': (datetime.now(MOSCOW_TZ) + timedelta(days=90)).strftime('%Y-%m-%d %H:%M:%S'),
-            'current_balance': 1500.00,
-            'language': await get_user_lang_code(user_id)
-        }
-    return None
-
-async def create_or_update_user(user_id: int, username: str, first_name: str, lang_code: str):
-    """STUB: Создание или обновление пользователя в Supabase."""
-    if supabase:
-        logger.info(f"DB STUB: Создание/обновление {user_id} через Supabase.")
-        # Здесь будет реальный upsert:
-        # await supabase.table('users').upsert({...}, on_conflict='user_id').execute()
-    return True
-
-# --- ОСНОВНОЙ КЛАСС (АДАПТИРОВАН) ---
 class CryptoSignalsBot:
     def __init__(self):
+        # АКТУАЛЬНЫЕ АКТИВЫ POCKET OPTION (синхронизировано с MARKET_ASSETS)
+        # Инициализация отложена - вызывается initialize_assets() после определения MARKET_ASSETS
         self.assets = {}
         
         self.timeframes = {
@@ -319,132 +277,209 @@ class CryptoSignalsBot:
             "1D": "1d", "1W": "1wk"
         }
         
-    def get_support_contact(self):
-        return SUPPORT_CONTACT
+        self.setup_database()
         
-    def get_admin_id(self):
-        return ADMIN_USER_ID
-
-# --- ОБРАБОТЧИКИ КОМАНД (АДАПТИРОВАНЫ ПОД ASYNC/SUPABASE) ---
-
-bot = CryptoSignalsBot() # Инициализация класса
-
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    lang_code = await get_user_lang_code(user.id, user.language_code)
-    
-    await create_or_update_user(user.id, user.username, user.first_name, lang_code)
-    # user_data = await get_user_data_from_db(user.id) # Если не нужно, можно убрать
-
-    # --- Ваш код для генерации меню START сохранен ---
-    keyboard = [
-        [InlineKeyboardButton(get_message('buy_subscription', lang_code), callback_data='plans')],
-        [InlineKeyboardButton(get_message('short_signal', lang_code), callback_data='short_signal'),
-         InlineKeyboardButton(get_message('long_signal', lang_code), callback_data='long_signal')],
-        [InlineKeyboardButton(get_message('my_stats', lang_code), callback_data='my_stats'),
-         InlineKeyboardButton(get_message('my_longs', lang_code), callback_data='my_longs')],
-        [InlineKeyboardButton(get_message('help', lang_code), callback_data='help'),
-         InlineKeyboardButton(get_message('settings', lang_code), callback_data='settings')],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_html(
-        get_message('welcome', lang_code) + "\n\n" + get_message('welcome_desc', lang_code),
-        reply_markup=reply_markup
-    )
-    
-# --- (Здесь должны идти все остальные команды из вашего старого кода) ---
-# Для краткости я их не включаю, но предполагается, что вы их вставите.
-# Убедитесь, что все команды используют get_user_data_from_db() вместо старых SQLite-функций.
-
-async def my_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
-    user_data = await get_user_data_from_db(user_id)
-    lang_code = user_data['language']
-    
-    status_text = (
-        f"{get_message('my_stats', lang_code)}:\n"
-        f"{get_message('subscription', lang_code)}: {user_data['subscription_type']}\n"
-        f"{get_message('expires', lang_code)}: {user_data['subscription_end']}\n"
-        f"{get_message('balance', lang_code)}: {user_data['current_balance']}\n"
-    )
-    await update.message.reply_markdown(status_text)
-
-
-# --- ОБРАБОТЧИК КНОПОК (CALLBACKQUERY) ---
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data
-    user_id = query.from_user.id
-    user_data = await get_user_data_from_db(user_id)
-    lang_code = user_data['language']
-    
-    # Здесь вся ваша сложная логика кнопок
-    if data == 'start':
-        await start_command(query, context)
+    def setup_database(self):
+        self.conn = sqlite3.connect('crypto_signals_bot.db', check_same_thread=False)
+        cursor = self.conn.cursor()
         
-    elif data == 'plans':
-        # Здесь будет логика отображения тарифов без YooKassa
-        await query.edit_message_text(f"{get_message('buy_subscription', lang_code)} (STUB)\n"
-                                      "Свяжитесь с админом для оплаты: @banana_pwr")
-
-    elif data == 'my_stats':
-        await my_stats_command(query, context)
-    
-    elif data == 'admin':
-        if user_id == ADMIN_USER_ID:
-            await query.edit_message_text("🔑 Админ-панель (STUB) готова к интеграции с Supabase.")
-        else:
-            await query.edit_message_text("❌ Нет прав.")
-    
-    # ... и т.д. (остальные кнопки)
-    
-# --- ОБРАБОТЧИК ОШИБОК ---
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"❌ Update {update} caused error {context.error}")
-
-# --- ФИНАЛЬНАЯ НАСТРОЙКА И ЗАПУСК ---
-
-async def post_init(application: Application) -> None:
-    """Выполняется после успешного старта бота."""
-    logger.info("⚙️ Post-initialization...")
-    # Установка меню команд
-    await application.bot.set_my_commands(
-        [BotCommand(command, description) for command, description in DEFAULT_BOT_COMMANDS]
-    )
-    logger.info("✅ Меню команд установлено.")
-
-def main() -> None:
-    if not BOT_TOKEN:
-        logger.error("❌ BOT_TOKEN не найден. Запуск отменен.")
-        return
-
-    # 1. Инициализация Supabase
-    init_supabase()
-    
-    # 2. Используем Application
-    app = Application.builder().token(BOT_TOKEN).build()
-    
-    # 3. Добавление обработчиков (Ваши команды)
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("my_stats", my_stats_command))
-    # ВСТАВЬТЕ ВСЕ ОСТАЛЬНЫЕ КОМАНДЫ ЗДЕСЬ ИЗ ВАШЕГО СТАРОГО main.py
-    # ...
-    
-    # Обработчик кнопок
-    app.add_handler(CallbackQueryHandler(button_callback))
-    
-    # Обработчик ошибок и post_init
-    app.add_error_handler(error_handler) 
-    app.post_init = post_init
-    
-    logger.info("🚀 UI-Bot started successfully!")
-    print("✅ UI-Bot is running...")
-    
-    app.run_polling(poll_interval=1.0) 
-
-
-if __name__ == '__main__':
-    main()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                first_name TEXT,
+                joined_date DATETIME,
+                subscription_end DATETIME,
+                is_premium BOOLEAN DEFAULT 0,
+                free_trials_used INTEGER DEFAULT 0,
+                signals_used INTEGER DEFAULT 0,
+                last_signal_date DATETIME,
+                initial_balance REAL DEFAULT NULL,
+                current_balance REAL DEFAULT NULL
+            )
+        ''')
+        
+        try:
+            cursor.execute('SELECT initial_balance FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN initial_balance REAL DEFAULT NULL')
+            cursor.execute('ALTER TABLE users ADD COLUMN current_balance REAL DEFAULT NULL')
+            logger.info("✅ Added balance columns to users table")
+        
+        try:
+            cursor.execute('SELECT short_base_stake FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN short_base_stake REAL DEFAULT 100')
+            cursor.execute('ALTER TABLE users ADD COLUMN current_martingale_level INTEGER DEFAULT 0')
+            cursor.execute('ALTER TABLE users ADD COLUMN consecutive_losses INTEGER DEFAULT 0')
+            cursor.execute('ALTER TABLE users ADD COLUMN currency TEXT DEFAULT "RUB"')
+            logger.info("✅ Added martingale and currency columns to users table")
+        
+        try:
+            cursor.execute('SELECT martingale_type FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN martingale_type INTEGER DEFAULT 3')
+            cursor.execute('ALTER TABLE users ADD COLUMN long_percentage REAL DEFAULT 2.5')
+            logger.info("✅ Added strategy selection columns to users table")
+        
+        try:
+            cursor.execute('SELECT subscription_type FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN subscription_type TEXT DEFAULT NULL')
+            cursor.execute('ALTER TABLE users ADD COLUMN referral_code TEXT DEFAULT NULL')
+            cursor.execute('ALTER TABLE users ADD COLUMN referred_by INTEGER DEFAULT NULL')
+            cursor.execute('ALTER TABLE users ADD COLUMN new_user_discount_used BOOLEAN DEFAULT 0')
+            cursor.execute('ALTER TABLE users ADD COLUMN referral_earnings REAL DEFAULT 0')
+            cursor.execute('ALTER TABLE users ADD COLUMN pocket_option_registered BOOLEAN DEFAULT 0')
+            cursor.execute('ALTER TABLE users ADD COLUMN pocket_option_login TEXT DEFAULT NULL')
+            logger.info("✅ Added subscription and referral columns to users table")
+        
+        try:
+            cursor.execute('SELECT pocket_option_login FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN pocket_option_login TEXT DEFAULT NULL')
+            logger.info("✅ Added pocket_option_login column to users table")
+        
+        try:
+            cursor.execute('SELECT last_upgrade_offer FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN last_upgrade_offer TEXT DEFAULT NULL')
+            logger.info("✅ Added last_upgrade_offer column to users table")
+        
+        try:
+            cursor.execute('SELECT language FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN language TEXT DEFAULT "ru"')
+            logger.info("✅ Added language column to users table")
+        
+        try:
+            cursor.execute('SELECT free_short_signals_today FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN free_short_signals_today INTEGER DEFAULT 0')
+            cursor.execute('ALTER TABLE users ADD COLUMN free_short_signals_date TEXT DEFAULT NULL')
+            logger.info("✅ Added FREE short signals limit columns to users table")
+        
+        try:
+            cursor.execute('SELECT free_long_signals_today FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN free_long_signals_today INTEGER DEFAULT 0')
+            cursor.execute('ALTER TABLE users ADD COLUMN free_long_signals_date TEXT DEFAULT NULL')
+            logger.info("✅ Added FREE long signals limit columns to users table")
+        
+        try:
+            cursor.execute('SELECT banned FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN banned BOOLEAN DEFAULT 0')
+            logger.info("✅ Added banned column to users table")
+        
+        try:
+            cursor.execute('SELECT trading_strategy FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN trading_strategy TEXT DEFAULT NULL')
+            logger.info("✅ Added trading_strategy column to users table")
+        
+        try:
+            cursor.execute('SELECT martingale_multiplier FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN martingale_multiplier INTEGER DEFAULT 3')
+            logger.info("✅ Added martingale_multiplier column to users table")
+        
+        try:
+            cursor.execute('SELECT martingale_base_stake FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN martingale_base_stake REAL DEFAULT NULL')
+            logger.info("✅ Added martingale_base_stake column to users table")
+        
+        try:
+            cursor.execute('SELECT percentage_value FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN percentage_value REAL DEFAULT 2.5')
+            logger.info("✅ Added percentage_value column to users table")
+        
+        try:
+            cursor.execute('SELECT auto_trading_enabled FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN auto_trading_enabled BOOLEAN DEFAULT 0')
+            cursor.execute('ALTER TABLE users ADD COLUMN pocket_option_email TEXT DEFAULT NULL')
+            cursor.execute('ALTER TABLE users ADD COLUMN auto_trading_mode TEXT DEFAULT "demo"')
+            logger.info("✅ Added auto_trading columns to users table")
+        
+        try:
+            cursor.execute('SELECT dalembert_base_stake FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN dalembert_base_stake REAL DEFAULT 100')
+            cursor.execute('ALTER TABLE users ADD COLUMN dalembert_unit REAL DEFAULT 50')
+            cursor.execute('ALTER TABLE users ADD COLUMN current_dalembert_level INTEGER DEFAULT 0')
+            logger.info("✅ Added D'Alembert strategy columns to users table")
+        
+        try:
+            cursor.execute('SELECT auto_trading_strategy FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN auto_trading_strategy TEXT DEFAULT "percentage"')
+            logger.info("✅ Added auto_trading_strategy column to users table")
+        
+        try:
+            cursor.execute('SELECT pocket_option_ssid FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN pocket_option_ssid TEXT DEFAULT NULL')
+            cursor.execute('ALTER TABLE users ADD COLUMN pocket_option_connected BOOLEAN DEFAULT 0')
+            logger.info("✅ Added Pocket Option SSID columns to users table")
+        
+        try:
+            cursor.execute('SELECT ssid_automation_purchased FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE users ADD COLUMN ssid_automation_purchased BOOLEAN DEFAULT 0')
+            cursor.execute('ALTER TABLE users ADD COLUMN ssid_automation_purchase_date DATETIME DEFAULT NULL')
+            logger.info("✅ Added SSID Automation purchase columns to users table")
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS signal_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                asset TEXT,
+                timeframe TEXT,
+                signal_type TEXT,
+                confidence REAL,
+                entry_price REAL,
+                result TEXT,
+                profit_loss REAL,
+                stake_amount REAL,
+                signal_date DATETIME,
+                close_date DATETIME,
+                notes TEXT,
+                FOREIGN KEY (user_id) REFERENCES users(user_id)
+            )
+        ''')
+        
+        try:
+            cursor.execute('SELECT expiration_time FROM signal_history LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE signal_history ADD COLUMN expiration_time TEXT')
+            logger.info("✅ Added expiration_time column to signal_history table")
+        
+        try:
+            cursor.execute('SELECT signal_tier FROM signal_history LIMIT 1')
+        except sqlite3.OperationalError:
+            cursor.execute('ALTER TABLE signal_history ADD COLUMN signal_tier TEXT DEFAULT "vip"')
+            logger.info("✅ Added signal_tier column to signal_history table")
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS signal_performance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                asset TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                total_signals INTEGER DEFAULT 0,
+                wins INTEGER DEFAULT 0,
+                losses INTEGER DEFAULT 0,
+                win_rate REAL DEFAULT 0.0,
+                adaptive_weight REAL DEFAULT 1.0,
+                last_updated TEXT NOT NULL,
+                UNIQUE(asset, timeframe)
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS pending_notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                timeframe_type T
