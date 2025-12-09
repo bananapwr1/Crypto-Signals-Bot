@@ -1,485 +1,590 @@
+"""
+main.py - Монолитный сервис для Telegram-бота с автоторговлей
+Версия: 1.0 (Модульная архитектура)
+Автор: AI Architect
+Дата: 2025-12-09
+
+Архитектура:
+- UI + Админка + Автоторговля + Аналитика в одном процессе
+- Параллельные фоновые задачи через asyncio.gather
+- Модульная структура для легкой поддержки
+"""
+
 import os
-import logging
-import pandas as pd
-import numpy as np
-import yfinance as yf
+import sys
 import asyncio
-import sqlite3
-import matplotlib.pyplot as plt
-import matplotlib
-import matplotlib.patheffects as pe
-import io
-import time
-import random
-from datetime import datetime, timedelta, timezone
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+import logging
+from datetime import datetime, timezone
+from typing import Optional
+
+# Загрузка переменных окружения в самом начале
 from dotenv import load_dotenv
-import warnings
-import uuid
-from yookassa import Configuration, Payment
-from webhook_system import webhook_system
-from crypto_utils import encrypt_ssid, decrypt_ssid
-warnings.filterwarnings('ignore')
-
 load_dotenv()
-matplotlib.use('Agg')
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
-SUPPORT_CONTACT = "@banana_pwr"
+# ==============================
+# ИМПОРТЫ МОДУЛЕЙ СИСТЕМЫ
+# ==============================
 
-# Московский часовой пояс (UTC+3)
-MOSCOW_TZ = timezone(timedelta(hours=3))
+# Конфигурация
+try:
+    from config import config, Config
+except ImportError:
+    print("❌ ОШИБКА: Не найден модуль config.py")
+    sys.exit(1)
 
-# Реферальная ссылка Pocket Option
-POCKET_OPTION_REF_LINK = "https://pocket-friends.com/r/ugauihalod"
+# База данных
+try:
+    from db_manager import DatabaseManager
+except ImportError:
+    print("⚠️ ПРЕДУПРЕЖДЕНИЕ: Модуль db_manager.py не найден, создайте его")
+    DatabaseManager = None
 
-# Промокод для новых пользователей
-PROMO_CODE = "FRIENDUGAUIHALOD"
+# Криптографические утилиты
+try:
+    from crypto_utils import encrypt_ssid, decrypt_ssid, generate_key
+except ImportError:
+    print("⚠️ ПРЕДУПРЕЖДЕНИЕ: Модуль crypto_utils.py не найден, создайте его")
+    encrypt_ssid = decrypt_ssid = generate_key = None
 
-# Команды бота по умолчанию (для сброса настроек)
-DEFAULT_BOT_COMMANDS = [
-    ("start", "🏠 Главное меню"),
-    ("plans", "💎 Тарифы и подписки"),
-    ("bank", "💰 Управление банком"),
-    ("autotrade", "🤖 Автоторговля (VIP)"),
-    ("settings", "⚙️ Настройки"),
-    ("short", "⚡ SHORT сигнал (1-5 мин)"),
-    ("long", "🔵 LONG сигнал (1-4 часа)"),
-    ("my_longs", "📋 Мои LONG позиции"),
-    ("my_stats", "📊 Моя статистика"),
-    ("help", "❓ Помощь и инструкции"),
-]
+# AI Core - Аналитика рынка
+try:
+    from ai_core import AICore
+except ImportError:
+    print("⚠️ ПРЕДУПРЕЖДЕНИЕ: Модуль ai_core.py не найден, создайте его")
+    AICore = None
 
-# Система тарифов
-SUBSCRIPTION_PLANS = {
-    'short': {
-        '1m': 4990,
-        '6m': 26946,
-        '12m': 47904,
-        'name': 'SHORT',
-        'description': 'Быстрые сигналы (1-5 мин) с мартингейлом',
-        'emoji': '⚡️'
-    },
-    'long': {
-        '1m': 4990,
-        '6m': 26946,
-        '12m': 47904,
-        'name': 'LONG',
-        'description': 'Длинные сигналы (1-4 часа) с процентной ставкой',
-        'emoji': '🔵'
-    },
-    'vip': {
-        '1m': 9990,
-        '6m': 53946,
-        '12m': 95904,
-        'name': 'VIP',
-        'description': 'Все сигналы SHORT + LONG + приоритет + гибкие настройки стратегий и статистика',
-        'emoji': '💎'
-    }
-}
+# Автоторговля
+try:
+    from autotrader import AutoTrader
+except ImportError:
+    print("⚠️ ПРЕДУПРЕЖДЕНИЕ: Модуль autotrader.py не найден, создайте его")
+    AutoTrader = None
 
-# Акция для новых пользователей
-NEW_USER_PROMO = {
-    'price': 1490,
-    'duration_days': 30,
-    'plan': 'short',
-    'discount_percent': 70
-}
+# Админ-менеджер
+try:
+    from admin_manager import AdminManager
+except ImportError:
+    print("⚠️ ПРЕДУПРЕЖДЕНИЕ: Модуль admin_manager.py не найден, создайте его")
+    AdminManager = None
 
-PAYOUT_PERCENT = 92
+# UI-обработчики
+try:
+    from ui_handlers import UIHandlers
+except ImportError:
+    print("⚠️ ПРЕДУПРЕЖДЕНИЕ: Модуль ui_handlers.py не найден, создайте его")
+    UIHandlers = None
 
-# Система мультиязычности
-TRANSLATIONS = {
-    'ru': {
-        'choose_language': '🌍 Выберите язык / Choose language:',
-        'language_selected': '✅ Язык установлен: Русский',
-        'choose_currency': '💱 Выберите валюту для отображения цен:',
-        'currency_selected': '✅ Валюта установлена',
-        'welcome': '👋 Добро пожаловать в бот торговых сигналов!',
-        'welcome_desc': 'Выберите тариф для начала работы:',
-        'short_plan': '⚡️ SHORT',
-        'short_desc': 'Быстрые сигналы (1-5 мин)\nМартингейл x3 стратегия',
-        'long_plan': '🔵 LONG',
-        'long_desc': 'Длинные сигналы (1-4 часа)\n2.5% процентная ставка',
-        'vip_plan': '💎 VIP',
-        'vip_desc': 'Все сигналы + 5 ежедневных рассылок',
-        'free_plan': '🆓 FREE',
-        'free_desc': 'LONG сигналы (10 рассылок/день)',
-        'buy_subscription': 'Купить подписку',
-        'my_stats': 'Моя статистика',
-        'my_longs': 'Мои лонги',
-        'help': 'Помощь',
-        'settings': 'Настройки',
-        'short_signal': 'Короткий сигнал',
-        'long_signal': 'Длинный сигнал',
-        'get_signal': '🎯 Получить сигнал',
-        'back': '◀️ Назад',
-        'call': '🟢 CALL',
-        'put': '🔴 PUT',
-        'price': 'Цена',
-        'subscription': 'Подписка',
-        'expires': 'Истекает',
-        'balance': 'Баланс',
-        'win_rate': 'Доходность сигналов',
-        'profit': 'Прибыль',
-        'month': 'месяц',
-        'months': 'месяцев',
-    },
-    'en': {
-        'choose_language': '🌍 Choose language:',
-        'language_selected': '✅ Language set: English',
-        'choose_currency': '💱 Choose currency for price display:',
-        'currency_selected': '✅ Currency set',
-        'welcome': '👋 Welcome to Trading Signals Bot!',
-        'welcome_desc': 'Choose a plan to get started:',
-        'short_plan': '⚡️ SHORT',
-        'short_desc': 'Fast signals (1-5 min)\nMartingale x3 strategy',
-        'long_plan': '🔵 LONG',
-        'long_desc': 'Long signals (1-4 hours)\n2.5% percentage rate',
-        'vip_plan': '💎 VIP',
-        'vip_desc': 'All signals + 5 daily broadcasts',
-        'free_plan': '🆓 FREE',
-        'free_desc': 'LONG signals (10 broadcasts/day)',
-        'buy_subscription': 'Buy Subscription',
-        'my_stats': 'My Statistics',
-        'my_longs': 'My Longs',
-        'help': 'Help',
-        'settings': 'Settings',
-        'short_signal': 'Short Signal',
-        'long_signal': 'Long Signal',
-        'get_signal': '🎯 Get Signal',
-        'back': '◀️ Back',
-        'call': '🟢 CALL',
-        'put': '🔴 PUT',
-        'price': 'Price',
-        'subscription': 'Subscription',
-        'expires': 'Expires',
-        'balance': 'Balance',
-        'win_rate': 'Signal Profitability',
-        'profit': 'Profit',
-        'month': 'month',
-        'months': 'months',
-    },
-    'es': {
-        'choose_language': '🌍 Elige idioma:',
-        'language_selected': '✅ Idioma establecido: Español',
-        'choose_currency': '💱 Elige la moneda para mostrar precios:',
-        'currency_selected': '✅ Moneda establecida',
-        'welcome': '👋 ¡Bienvenido al Bot de Señales de Trading!',
-        'welcome_desc': 'Elige un plan para comenzar:',
-        'short_plan': '⚡️ CORTO',
-        'short_desc': 'Señales rápidas (1-5 min)\nEstrategia Martingala x3',
-        'long_plan': '🔵 LARGO',
-        'long_desc': 'Señales largas (1-4 horas)\nTasa porcentual del 2.5%',
-        'vip_plan': '💎 VIP',
-        'vip_desc': 'Todas las señales + 5 transmisiones diarias',
-        'free_plan': '🆓 GRATIS',
-        'free_desc': 'Señales LONG (10 transmisiones/día)',
-        'buy_subscription': 'Comprar Suscripción',
-        'my_stats': 'Mis Estadísticas',
-        'my_longs': 'Mis Largos',
-        'help': 'Ayuda',
-        'settings': 'Configuración',
-        'short_signal': 'Señal Corta',
-        'long_signal': 'Señal Larga',
-        'get_signal': '🎯 Obtener Señal',
-        'back': '◀️ Atrás',
-        'call': '🟢 CALL',
-        'put': '🔴 PUT',
-        'price': 'Precio',
-        'subscription': 'Suscripción',
-        'expires': 'Expira',
-        'balance': 'Saldo',
-        'win_rate': 'Rentabilidad de Señales',
-        'profit': 'Ganancia',
-        'month': 'mes',
-        'months': 'meses',
-    },
-    'pt': {
-        'choose_language': '🌍 Escolha o idioma:',
-        'language_selected': '✅ Idioma definido: Português',
-        'choose_currency': '💱 Escolha a moeda para exibição de preços:',
-        'currency_selected': '✅ Moeda definida',
-        'welcome': '👋 Bem-vindo ao Bot de Sinais de Trading!',
-        'welcome_desc': 'Escolha um plano para começar:',
-        'short_plan': '⚡️ CURTO',
-        'short_desc': 'Sinais rápidos (1-5 min)\nEstratégia Martingale x3',
-        'long_plan': '🔵 LONGO',
-        'long_desc': 'Sinais longos (1-4 horas)\nTaxa percentual de 2.5%',
-        'vip_plan': '💎 VIP',
-        'vip_desc': 'Todos os sinais + 5 transmissões diárias',
-        'free_plan': '🆓 GRÁTIS',
-        'free_desc': 'Sinais LONG (10 transmissões/dia)',
-        'buy_subscription': 'Comprar Assinatura',
-        'my_stats': 'Minhas Estatísticas',
-        'my_longs': 'Meus Longos',
-        'help': 'Ajuda',
-        'settings': 'Configurações',
-        'short_signal': 'Sinal Curto',
-        'long_signal': 'Sinal Longo',
-        'get_signal': '🎯 Obter Sinal',
-        'back': '◀️ Voltar',
-        'call': '🟢 CALL',
-        'put': '🔴 PUT',
-        'price': 'Preço',
-        'subscription': 'Assinatura',
-        'expires': 'Expira',
-        'balance': 'Saldo',
-        'win_rate': 'Rentabilidade de Sinais',
-        'profit': 'Lucro',
-        'month': 'mês',
-        'months': 'meses',
-    }
-}
+# Pocket Option API
+try:
+    from pocket_option_api import PocketOptionAPI
+except ImportError:
+    print("⚠️ ПРЕДУПРЕЖДЕНИЕ: Модуль pocket_option_api.py не найден, создайте его")
+    PocketOptionAPI = None
 
-# Курсы валют для конвертации (примерные, можно получать через API)
-CURRENCY_RATES = {
-    'RUB': 1.0,
-    'USD': 0.011,
-}
+# Telegram API
+try:
+    from telegram import Update, BotCommand
+    from telegram.ext import (
+        Application,
+        CommandHandler,
+        CallbackQueryHandler,
+        MessageHandler,
+        ContextTypes,
+        filters
+    )
+except ImportError:
+    print("❌ ОШИБКА: python-telegram-bot не установлен")
+    print("Установите: pip install python-telegram-bot")
+    sys.exit(1)
 
-CURRENCY_SYMBOLS = {
-    'RUB': '₽',
-    'USD': '$',
-}
+# ==============================
+# НАСТРОЙКА ЛОГИРОВАНИЯ
+# ==============================
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('bot.log', encoding='utf-8')
+    ]
 )
 logger = logging.getLogger(__name__)
 
-# ЮКасса настройки
-YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
-YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
+# ==============================
+# ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
+# ==============================
 
-# Конфигурация ЮКассы
-if YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY:
+# Инстансы модулей (инициализируются в main_async)
+db_manager: Optional[DatabaseManager] = None
+ai_core: Optional[AICore] = None
+autotrader: Optional[AutoTrader] = None
+admin_manager: Optional[AdminManager] = None
+ui_handlers: Optional[UIHandlers] = None
+pocket_api: Optional[PocketOptionAPI] = None
+
+# Telegram Application
+app: Optional[Application] = None
+
+# ==============================
+# TELEGRAM HANDLERS - КЛИЕНТСКИЕ
+# ==============================
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /start - Главное меню"""
+    user = update.effective_user
+    
+    if ui_handlers:
+        await ui_handlers.handle_start(update, context)
+    else:
+        await update.message.reply_text(
+            f"👋 Привет, {user.first_name}!\n\n"
+            "Бот в процессе инициализации. Попробуйте позже."
+        )
+
+
+async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /plans - Тарифы и подписки"""
+    if ui_handlers:
+        await ui_handlers.handle_plans(update, context)
+    else:
+        await update.message.reply_text("⚠️ Модуль UI не загружен")
+
+
+async def bank_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /bank - Управление банком"""
+    if ui_handlers:
+        await ui_handlers.handle_bank(update, context)
+    else:
+        await update.message.reply_text("⚠️ Модуль UI не загружен")
+
+
+async def autotrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /autotrade - Автоторговля (VIP)"""
+    if ui_handlers:
+        await ui_handlers.handle_autotrade(update, context)
+    else:
+        await update.message.reply_text("⚠️ Модуль UI не загружен")
+
+
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /settings - Настройки"""
+    if ui_handlers:
+        await ui_handlers.handle_settings(update, context)
+    else:
+        await update.message.reply_text("⚠️ Модуль UI не загружен")
+
+
+async def short_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /short - SHORT сигнал"""
+    if ui_handlers:
+        await ui_handlers.handle_short_signal(update, context)
+    else:
+        await update.message.reply_text("⚠️ Модуль UI не загружен")
+
+
+async def long_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /long - LONG сигнал"""
+    if ui_handlers:
+        await ui_handlers.handle_long_signal(update, context)
+    else:
+        await update.message.reply_text("⚠️ Модуль UI не загружен")
+
+
+async def my_longs_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /my_longs - Мои LONG позиции"""
+    if ui_handlers:
+        await ui_handlers.handle_my_longs(update, context)
+    else:
+        await update.message.reply_text("⚠️ Модуль UI не загружен")
+
+
+async def my_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /my_stats - Моя статистика"""
+    if ui_handlers:
+        await ui_handlers.handle_my_stats(update, context)
+    else:
+        await update.message.reply_text("⚠️ Модуль UI не загружен")
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /help - Помощь"""
+    if ui_handlers:
+        await ui_handlers.handle_help(update, context)
+    else:
+        await update.message.reply_text("⚠️ Модуль UI не загружен")
+
+
+# ==============================
+# TELEGRAM HANDLERS - АДМИНСКИЕ
+# ==============================
+
+async def manager_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /manager - Админ-панель"""
+    user = update.effective_user
+    
+    # Проверка прав администратора
+    if user.id not in config.ADMIN_IDS:
+        await update.message.reply_text("⛔️ Доступ запрещен. Эта команда только для администраторов.")
+        return
+    
+    if admin_manager:
+        await admin_manager.handle_manager_panel(update, context)
+    else:
+        await update.message.reply_text("⚠️ Модуль админки не загружен")
+
+
+async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /logs - Просмотр логов"""
+    user = update.effective_user
+    
+    if user.id not in config.ADMIN_IDS:
+        await update.message.reply_text("⛔️ Доступ запрещен.")
+        return
+    
+    if admin_manager:
+        await admin_manager.handle_logs(update, context)
+    else:
+        await update.message.reply_text("⚠️ Модуль админки не загружен")
+
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /stats - Статистика бота"""
+    user = update.effective_user
+    
+    if user.id not in config.ADMIN_IDS:
+        await update.message.reply_text("⛔️ Доступ запрещен.")
+        return
+    
+    if admin_manager:
+        await admin_manager.handle_stats(update, context)
+    else:
+        await update.message.reply_text("⚠️ Модуль админки не загружен")
+
+
+async def llm_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик LLM-чата (для админов)"""
+    user = update.effective_user
+    
+    if user.id not in config.ADMIN_IDS:
+        return  # Игнорируем сообщения не от админов
+    
+    if admin_manager:
+        await admin_manager.handle_llm_chat(update, context)
+    else:
+        await update.message.reply_text("⚠️ Модуль LLM не загружен")
+
+
+# ==============================
+# CALLBACK QUERY HANDLER
+# ==============================
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик inline кнопок"""
+    query = update.callback_query
+    await query.answer()
+    
+    user = query.from_user
+    data = query.data
+    
+    # Проверяем, является ли это админским callback
+    if data.startswith('admin_'):
+        if user.id not in config.ADMIN_IDS:
+            await query.edit_message_text("⛔️ Доступ запрещен.")
+            return
+        
+        if admin_manager:
+            await admin_manager.handle_callback(update, context)
+        else:
+            await query.edit_message_text("⚠️ Модуль админки не загружен")
+    else:
+        # Клиентские callback
+        if ui_handlers:
+            await ui_handlers.handle_callback(update, context)
+        else:
+            await query.edit_message_text("⚠️ Модуль UI не загружен")
+
+
+# ==============================
+# ОБРАБОТЧИК ОШИБОК
+# ==============================
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Глобальный обработчик ошибок"""
+    logger.error(f"Update {update} caused error: {context.error}")
+    
+    # Уведомляем пользователя
+    if update and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "⚠️ Произошла ошибка при обработке вашего запроса.\n"
+                "Попробуйте позже или обратитесь в поддержку."
+            )
+        except Exception as e:
+            logger.error(f"Не удалось отправить сообщение об ошибке: {e}")
+
+
+# ==============================
+# НАСТРОЙКА КОМАНД БОТА
+# ==============================
+
+async def setup_bot_commands(application: Application) -> None:
+    """Настройка меню команд бота"""
+    commands = [
+        BotCommand("start", "🏠 Главное меню"),
+        BotCommand("plans", "💎 Тарифы и подписки"),
+        BotCommand("bank", "💰 Управление банком"),
+        BotCommand("autotrade", "🤖 Автоторговля (VIP)"),
+        BotCommand("settings", "⚙️ Настройки"),
+        BotCommand("short", "⚡ SHORT сигнал (1-5 мин)"),
+        BotCommand("long", "🔵 LONG сигнал (1-4 часа)"),
+        BotCommand("my_longs", "📋 Мои LONG позиции"),
+        BotCommand("my_stats", "📊 Моя статистика"),
+        BotCommand("help", "❓ Помощь и инструкции"),
+    ]
+    
+    await application.bot.set_my_commands(commands)
+    logger.info("✅ Команды бота настроены")
+
+
+# ==============================
+# ФОНОВЫЕ ЦИКЛЫ
+# ==============================
+
+async def run_analysis_cycle():
+    """
+    Бесконечный цикл аналитики рынка
+    Вызывает ai_core.run_analysis_cycle()
+    """
+    if not ai_core:
+        logger.warning("⚠️ AI Core не инициализирован, аналитика отключена")
+        return
+    
+    logger.info("🔍 Запуск цикла аналитики рынка...")
+    
     try:
-        Configuration.configure(YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY)
-        logger.info("✅ YooKassa configured successfully")
+        await ai_core.run_analysis_cycle()
     except Exception as e:
-        logger.error(f"❌ YooKassa configuration failed: {e}")
-else:
-    logger.warning("⚠️ YooKassa credentials not found - payment will use manual mode")
+        logger.error(f"❌ Ошибка в цикле аналитики: {e}")
 
-class CryptoSignalsBot:
-    def __init__(self):
-        # АКТУАЛЬНЫЕ АКТИВЫ POCKET OPTION (синхронизировано с MARKET_ASSETS)
-        # Инициализация отложена - вызывается initialize_assets() после определения MARKET_ASSETS
-        self.assets = {}
-        
-        self.timeframes = {
-            "1M": "1m", "3M": "3m", "5M": "5m", "15M": "15m", 
-            "30M": "30m", "1H": "1h", "4H": "4h", 
-            "1D": "1d", "1W": "1wk"
-        }
-        
-        self.setup_database()
-        
-    def setup_database(self):
-        self.conn = sqlite3.connect('crypto_signals_bot.db', check_same_thread=False)
-        cursor = self.conn.cursor()
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                first_name TEXT,
-                joined_date DATETIME,
-                subscription_end DATETIME,
-                is_premium BOOLEAN DEFAULT 0,
-                free_trials_used INTEGER DEFAULT 0,
-                signals_used INTEGER DEFAULT 0,
-                last_signal_date DATETIME,
-                initial_balance REAL DEFAULT NULL,
-                current_balance REAL DEFAULT NULL
+
+async def run_autotrade_cycle():
+    """
+    Бесконечный цикл автоторговли + парсинга TG
+    Вызывает autotrader.run_autotrade_and_parser()
+    """
+    if not autotrader:
+        logger.warning("⚠️ AutoTrader не инициализирован, автоторговля отключена")
+        return
+    
+    logger.info("🤖 Запуск цикла автоторговли и парсинга...")
+    
+    try:
+        await autotrader.run_autotrade_and_parser()
+    except Exception as e:
+        logger.error(f"❌ Ошибка в цикле автоторговли: {e}")
+
+
+# ==============================
+# ИНИЦИАЛИЗАЦИЯ МОДУЛЕЙ
+# ==============================
+
+async def initialize_modules():
+    """Инициализация всех модулей системы"""
+    global db_manager, ai_core, autotrader, admin_manager, ui_handlers, pocket_api
+    
+    logger.info("=" * 60)
+    logger.info("🚀 Инициализация модулей...")
+    logger.info("=" * 60)
+    
+    # 1. База данных
+    if DatabaseManager:
+        try:
+            db_manager = DatabaseManager()
+            logger.info("✅ DatabaseManager инициализирован")
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации DatabaseManager: {e}")
+    
+    # 2. Pocket Option API
+    if PocketOptionAPI:
+        try:
+            pocket_api = PocketOptionAPI()
+            logger.info("✅ PocketOptionAPI инициализирован")
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации PocketOptionAPI: {e}")
+    
+    # 3. AI Core
+    if AICore:
+        try:
+            ai_core = AICore(db_manager=db_manager)
+            logger.info("✅ AICore инициализирован")
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации AICore: {e}")
+    
+    # 4. AutoTrader
+    if AutoTrader:
+        try:
+            autotrader = AutoTrader(
+                db_manager=db_manager,
+                pocket_api=pocket_api
             )
-        ''')
-        
+            logger.info("✅ AutoTrader инициализирован")
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации AutoTrader: {e}")
+    
+    # 5. Admin Manager
+    if AdminManager:
         try:
-            cursor.execute('SELECT initial_balance FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN initial_balance REAL DEFAULT NULL')
-            cursor.execute('ALTER TABLE users ADD COLUMN current_balance REAL DEFAULT NULL')
-            logger.info("✅ Added balance columns to users table")
-        
-        try:
-            cursor.execute('SELECT short_base_stake FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN short_base_stake REAL DEFAULT 100')
-            cursor.execute('ALTER TABLE users ADD COLUMN current_martingale_level INTEGER DEFAULT 0')
-            cursor.execute('ALTER TABLE users ADD COLUMN consecutive_losses INTEGER DEFAULT 0')
-            cursor.execute('ALTER TABLE users ADD COLUMN currency TEXT DEFAULT "RUB"')
-            logger.info("✅ Added martingale and currency columns to users table")
-        
-        try:
-            cursor.execute('SELECT martingale_type FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN martingale_type INTEGER DEFAULT 3')
-            cursor.execute('ALTER TABLE users ADD COLUMN long_percentage REAL DEFAULT 2.5')
-            logger.info("✅ Added strategy selection columns to users table")
-        
-        try:
-            cursor.execute('SELECT subscription_type FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN subscription_type TEXT DEFAULT NULL')
-            cursor.execute('ALTER TABLE users ADD COLUMN referral_code TEXT DEFAULT NULL')
-            cursor.execute('ALTER TABLE users ADD COLUMN referred_by INTEGER DEFAULT NULL')
-            cursor.execute('ALTER TABLE users ADD COLUMN new_user_discount_used BOOLEAN DEFAULT 0')
-            cursor.execute('ALTER TABLE users ADD COLUMN referral_earnings REAL DEFAULT 0')
-            cursor.execute('ALTER TABLE users ADD COLUMN pocket_option_registered BOOLEAN DEFAULT 0')
-            cursor.execute('ALTER TABLE users ADD COLUMN pocket_option_login TEXT DEFAULT NULL')
-            logger.info("✅ Added subscription and referral columns to users table")
-        
-        try:
-            cursor.execute('SELECT pocket_option_login FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN pocket_option_login TEXT DEFAULT NULL')
-            logger.info("✅ Added pocket_option_login column to users table")
-        
-        try:
-            cursor.execute('SELECT last_upgrade_offer FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN last_upgrade_offer TEXT DEFAULT NULL')
-            logger.info("✅ Added last_upgrade_offer column to users table")
-        
-        try:
-            cursor.execute('SELECT language FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN language TEXT DEFAULT "ru"')
-            logger.info("✅ Added language column to users table")
-        
-        try:
-            cursor.execute('SELECT free_short_signals_today FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN free_short_signals_today INTEGER DEFAULT 0')
-            cursor.execute('ALTER TABLE users ADD COLUMN free_short_signals_date TEXT DEFAULT NULL')
-            logger.info("✅ Added FREE short signals limit columns to users table")
-        
-        try:
-            cursor.execute('SELECT free_long_signals_today FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN free_long_signals_today INTEGER DEFAULT 0')
-            cursor.execute('ALTER TABLE users ADD COLUMN free_long_signals_date TEXT DEFAULT NULL')
-            logger.info("✅ Added FREE long signals limit columns to users table")
-        
-        try:
-            cursor.execute('SELECT banned FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN banned BOOLEAN DEFAULT 0')
-            logger.info("✅ Added banned column to users table")
-        
-        try:
-            cursor.execute('SELECT trading_strategy FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN trading_strategy TEXT DEFAULT NULL')
-            logger.info("✅ Added trading_strategy column to users table")
-        
-        try:
-            cursor.execute('SELECT martingale_multiplier FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN martingale_multiplier INTEGER DEFAULT 3')
-            logger.info("✅ Added martingale_multiplier column to users table")
-        
-        try:
-            cursor.execute('SELECT martingale_base_stake FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN martingale_base_stake REAL DEFAULT NULL')
-            logger.info("✅ Added martingale_base_stake column to users table")
-        
-        try:
-            cursor.execute('SELECT percentage_value FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN percentage_value REAL DEFAULT 2.5')
-            logger.info("✅ Added percentage_value column to users table")
-        
-        try:
-            cursor.execute('SELECT auto_trading_enabled FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN auto_trading_enabled BOOLEAN DEFAULT 0')
-            cursor.execute('ALTER TABLE users ADD COLUMN pocket_option_email TEXT DEFAULT NULL')
-            cursor.execute('ALTER TABLE users ADD COLUMN auto_trading_mode TEXT DEFAULT "demo"')
-            logger.info("✅ Added auto_trading columns to users table")
-        
-        try:
-            cursor.execute('SELECT dalembert_base_stake FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN dalembert_base_stake REAL DEFAULT 100')
-            cursor.execute('ALTER TABLE users ADD COLUMN dalembert_unit REAL DEFAULT 50')
-            cursor.execute('ALTER TABLE users ADD COLUMN current_dalembert_level INTEGER DEFAULT 0')
-            logger.info("✅ Added D'Alembert strategy columns to users table")
-        
-        try:
-            cursor.execute('SELECT auto_trading_strategy FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN auto_trading_strategy TEXT DEFAULT "percentage"')
-            logger.info("✅ Added auto_trading_strategy column to users table")
-        
-        try:
-            cursor.execute('SELECT pocket_option_ssid FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN pocket_option_ssid TEXT DEFAULT NULL')
-            cursor.execute('ALTER TABLE users ADD COLUMN pocket_option_connected BOOLEAN DEFAULT 0')
-            logger.info("✅ Added Pocket Option SSID columns to users table")
-        
-        try:
-            cursor.execute('SELECT ssid_automation_purchased FROM users LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE users ADD COLUMN ssid_automation_purchased BOOLEAN DEFAULT 0')
-            cursor.execute('ALTER TABLE users ADD COLUMN ssid_automation_purchase_date DATETIME DEFAULT NULL')
-            logger.info("✅ Added SSID Automation purchase columns to users table")
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS signal_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                asset TEXT,
-                timeframe TEXT,
-                signal_type TEXT,
-                confidence REAL,
-                entry_price REAL,
-                result TEXT,
-                profit_loss REAL,
-                stake_amount REAL,
-                signal_date DATETIME,
-                close_date DATETIME,
-                notes TEXT,
-                FOREIGN KEY (user_id) REFERENCES users(user_id)
+            admin_manager = AdminManager(
+                db_manager=db_manager,
+                ai_core=ai_core,
+                autotrader=autotrader
             )
-        ''')
-        
+            logger.info("✅ AdminManager инициализирован")
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации AdminManager: {e}")
+    
+    # 6. UI Handlers
+    if UIHandlers:
         try:
-            cursor.execute('SELECT expiration_time FROM signal_history LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE signal_history ADD COLUMN expiration_time TEXT')
-            logger.info("✅ Added expiration_time column to signal_history table")
-        
-        try:
-            cursor.execute('SELECT signal_tier FROM signal_history LIMIT 1')
-        except sqlite3.OperationalError:
-            cursor.execute('ALTER TABLE signal_history ADD COLUMN signal_tier TEXT DEFAULT "vip"')
-            logger.info("✅ Added signal_tier column to signal_history table")
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS signal_performance (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                asset TEXT NOT NULL,
-                timeframe TEXT NOT NULL,
-                total_signals INTEGER DEFAULT 0,
-                wins INTEGER DEFAULT 0,
-                losses INTEGER DEFAULT 0,
-                win_rate REAL DEFAULT 0.0,
-                adaptive_weight REAL DEFAULT 1.0,
-                last_updated TEXT NOT NULL,
-                UNIQUE(asset, timeframe)
+            ui_handlers = UIHandlers(
+                db_manager=db_manager,
+                pocket_api=pocket_api
             )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS pending_notifications (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                timeframe_type T
+            logger.info("✅ UIHandlers инициализирован")
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации UIHandlers: {e}")
+    
+    logger.info("=" * 60)
+    logger.info("✅ Инициализация модулей завершена")
+    logger.info("=" * 60)
+
+
+# ==============================
+# ГЛАВНАЯ ФУНКЦИЯ
+# ==============================
+
+async def main_async():
+    """
+    Главная асинхронная функция
+    Запускает Telegram UI + 2 фоновых цикла параллельно
+    """
+    global app
+    
+    logger.info("=" * 60)
+    logger.info("🚀 ЗАПУСК МОНОЛИТНОГО СЕРВИСА")
+    logger.info("=" * 60)
+    
+    # Проверка конфигурации
+    try:
+        Config.validate()
+        logger.info("✅ Конфигурация валидна")
+    except ValueError as e:
+        logger.error(f"❌ Ошибка конфигурации: {e}")
+        sys.exit(1)
+    
+    # Логирование переменных окружения
+    logger.info(f"📝 BOT_TOKEN: {config.TELEGRAM_TOKEN[:10]}...")
+    logger.info(f"📝 SUPABASE_URL: {config.SUPABASE_URL[:30]}..." if config.SUPABASE_URL else "❌ SUPABASE_URL не задан")
+    logger.info(f"📝 ADMIN_IDS: {config.ADMIN_IDS}")
+    
+    # Проверка наличия ANTHROPIC_API_KEY для LLM
+    anthropic_key = os.getenv('ANTHROPIC_API_KEY')
+    if anthropic_key:
+        logger.info(f"✅ ANTHROPIC_API_KEY найден: {anthropic_key[:10]}...")
+    else:
+        logger.warning("⚠️ ANTHROPIC_API_KEY не найден, LLM-чат будет недоступен")
+    
+    # Инициализация модулей
+    await initialize_modules()
+    
+    # Создание Telegram приложения
+    logger.info("📱 Создание Telegram Application...")
+    app = Application.builder().token(config.TELEGRAM_TOKEN).build()
+    
+    # Регистрация обработчиков команд - КЛИЕНТСКИЕ
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("plans", plans_command))
+    app.add_handler(CommandHandler("bank", bank_command))
+    app.add_handler(CommandHandler("autotrade", autotrade_command))
+    app.add_handler(CommandHandler("settings", settings_command))
+    app.add_handler(CommandHandler("short", short_command))
+    app.add_handler(CommandHandler("long", long_command))
+    app.add_handler(CommandHandler("my_longs", my_longs_command))
+    app.add_handler(CommandHandler("my_stats", my_stats_command))
+    app.add_handler(CommandHandler("help", help_command))
+    
+    # Регистрация обработчиков команд - АДМИНСКИЕ
+    app.add_handler(CommandHandler("manager", manager_command))
+    app.add_handler(CommandHandler("logs", logs_command))
+    app.add_handler(CommandHandler("stats", stats_command))
+    
+    # Обработчик LLM-чата (текстовые сообщения от админов)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, llm_chat_handler))
+    
+    # Обработчик кнопок
+    app.add_handler(CallbackQueryHandler(button_handler))
+    
+    # Обработчик ошибок
+    app.add_error_handler(error_handler)
+    
+    # Настройка команд бота
+    await setup_bot_commands(app)
+    
+    logger.info("✅ Telegram Application готов")
+    logger.info("=" * 60)
+    
+    # Инициализация приложения
+    await app.initialize()
+    await app.start()
+    
+    logger.info("🎯 СИСТЕМА ЗАПУЩЕНА!")
+    logger.info("=" * 60)
+    logger.info("📱 Telegram Bot: ACTIVE")
+    logger.info("🔍 Аналитика: STARTING")
+    logger.info("🤖 Автоторговля: STARTING")
+    logger.info("=" * 60)
+    
+    # Запуск параллельных задач через asyncio.gather
+    try:
+        await asyncio.gather(
+            # 1. Telegram Polling (Блокирующий)
+            app.updater.start_polling(allowed_updates=Update.ALL_TYPES),
+            
+            # 2. Цикл аналитики рынка (Бесконечный)
+            run_analysis_cycle(),
+            
+            # 3. Цикл автоторговли + парсинга TG (Бесконечный)
+            run_autotrade_cycle(),
+            
+            return_exceptions=True
+        )
+    except KeyboardInterrupt:
+        logger.info("⚠️ Получен сигнал остановки (Ctrl+C)")
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка: {e}")
+    finally:
+        # Graceful shutdown
+        logger.info("🛑 Остановка сервиса...")
+        await app.stop()
+        await app.shutdown()
+        logger.info("✅ Сервис остановлен")
+
+
+# ==============================
+# ТОЧКА ВХОДА
+# ==============================
+
+def main():
+    """Синхронная точка входа"""
+    try:
+        asyncio.run(main_async())
+    except KeyboardInterrupt:
+        logger.info("⚠️ Программа прервана пользователем")
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка запуска: {e}")
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()
