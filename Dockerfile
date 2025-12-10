@@ -1,10 +1,11 @@
 # ======================================
-# Dockerfile для Crypto Signals Bot
-# Версия: 1.0
-# Python 3.11 + Chrome + Selenium
+# Dockerfile для Crypto Signals Bot - ПОЛНАЯ ВЕРСИЯ
+# Версия: 2.0
+# Python 3.10 + Chrome + Selenium
+# Для BotHost используйте Dockerfile.bothost
 # ======================================
 
-FROM python:3.11-slim-bookworm
+FROM python:3.10-slim
 
 # Установка переменных окружения
 ENV PYTHONUNBUFFERED=1 \
@@ -55,12 +56,12 @@ RUN apt-get update && apt-get install -y \
     # Очистка кэша
     && rm -rf /var/lib/apt/lists/* /tmp/google-chrome-key.pub
 
-# Копирование requirements.txt
-COPY requirements.txt .
+# Копирование requirements (полная версия)
+COPY requirements-full.txt .
 
 # Установка Python зависимостей
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements-full.txt
 
 # Копирование всех файлов приложения
 COPY . .

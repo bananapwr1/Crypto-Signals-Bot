@@ -1,0 +1,41 @@
+# ======================================
+# Dockerfile для BotHost - ОБЛЕГЧЕННАЯ ВЕРСИЯ
+# Только Telegram интерфейс, без Chrome/Selenium
+# ======================================
+
+FROM python:3.10-slim
+
+# Установка переменных окружения
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+# Создание рабочей директории
+WORKDIR /app
+
+# Установка минимальных системных зависимостей
+RUN apt-get update && apt-get install -y \
+    wget \
+    curl \
+    ca-certificates \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копирование requirements для BotHost
+COPY requirements-bothost.txt .
+
+# Установка Python зависимостей
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements-bothost.txt
+
+# Копирование всех файлов приложения
+COPY . .
+
+# Создание директории для логов
+RUN mkdir -p /app/logs
+
+# Expose порт для health check
+EXPOSE 8080
+
+# Запуск бота
+CMD ["python", "main.py"]

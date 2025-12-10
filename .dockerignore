@@ -8,24 +8,24 @@ __pycache__
 *$py.class
 *.so
 .Python
-*.egg-info
-dist/
-build/
-*.egg
-
-# Virtual environments
-venv/
 env/
+venv/
 ENV/
-.venv
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
 # Logs
 *.log
@@ -34,33 +34,30 @@ logs/
 # Environment
 .env
 .env.local
-.env.*.local
 
-# Documentation (не нужны в образе)
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation (не нужна в образе)
 *.md
-CHANGELOG*.md
-DEPLOYMENT_GUIDE.md
-FINAL_SUMMARY.md
-PROJECT_INFO.md
-README*.md
-replit.md
-STRATEGY*.md
-BOT_PROMPT.md
+!README.md
 
-# Attached assets (screenshots)
-attached_assets/
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
 
-# Local scripts
+# Local scripts (не для production)
 local_scripts/
 
-# Archives
-*.zip
+# Docker
+Dockerfile*
+docker-compose*.yml
 
-# Cache
-.cache/
-.pytest_cache/
-
-# Database files (если есть локальные)
-*.db
-*.sqlite
-*.sqlite3
+# Temporary files
+*.tmp
+.DS_Store
