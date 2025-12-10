@@ -257,6 +257,59 @@ class DatabaseManager:
             logger.error(f"❌ Ошибка update_signal_result: {e}")
             return False
     
+    def get_external_signals(self, limit: int = 100) -> List[Dict]:
+        """
+        Получить внешние сигналы из парсера для анализа AI Core
+        
+        Args:
+            limit: Максимальное количество сигналов
+        
+        Returns:
+            List[Dict]: Список внешних сигналов
+        """
+        if not self.client:
+            logger.info("DB STUB: get_external_signals()")
+            return []
+        
+        try:
+            # Получаем сигналы с источником 'parser' или 'external'
+            response = self.client.table('signals') \
+                .select('*') \
+                .in_('source', ['parser', 'external', 'telegram']) \
+                .order('created_at', desc=True) \
+                .limit(limit) \
+                .execute()
+            
+            return response.data or []
+        except Exception as e:
+            logger.error(f"❌ Ошибка get_external_signals: {e}")
+            return []
+    
+    def mark_signal_as_processed(self, signal_id: int) -> bool:
+        """
+        Отметить сигнал как обработанный
+        
+        Args:
+            signal_id: ID сигнала
+        
+        Returns:
+            bool: Успешность операции
+        """
+        if not self.client:
+            return True
+        
+        try:
+            self.client.table('signals').update({
+                'processed': True,
+                'processed_at': datetime.now(timezone.utc).isoformat()
+            }).eq('id', signal_id).execute()
+            
+            logger.info(f"✅ Сигнал {signal_id} отмечен как обработанный")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Ошибка mark_signal_as_processed: {e}")
+            return False
+    
     # ========================================
     # СТАТИСТИКА
     # ========================================

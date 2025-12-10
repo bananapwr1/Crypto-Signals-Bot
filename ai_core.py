@@ -1,11 +1,12 @@
 """
 ai_core.py - AI Core для аналитики рынка
-Версия: 1.0
-Дата: 2025-12-09
+Версия: 2.0
+Дата: 2025-12-10
 
 Обеспечивает:
 - Аналитику рынка через LLM (Claude/GPT)
 - Генерацию торговых сигналов на основе технического анализа
+- Использование внешних сигналов (из парсера) для обучения и улучшения анализа
 - Бесконечный цикл анализа (run_analysis_cycle)
 - Интеграция с yfinance для получения рыночных данных
 """
@@ -288,15 +289,84 @@ class AICore:
             return None
     
     # ========================================
+    # РАБОТА С ВНЕШНИМИ СИГНАЛАМИ
+    # ========================================
+    
+    async def get_external_signals(self) -> List[Dict[str, Any]]:
+        """
+        Получить внешние сигналы из парсера для анализа
+        
+        Returns:
+            List[Dict]: Список внешних сигналов из БД
+        """
+        if not self.db_manager:
+            return []
+        
+        try:
+            # Получаем сигналы, помеченные как внешние (от парсера)
+            signals = self.db_manager.get_external_signals()
+            
+            if signals:
+                logger.info(f"📨 Получено {len(signals)} внешних сигналов для анализа")
+            
+            return signals
+        
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения внешних сигналов: {e}")
+            return []
+    
+    def analyze_external_signals(self, external_signals: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Анализ внешних сигналов для обучения и улучшения модели
+        
+        Args:
+            external_signals: Список внешних сигналов
+        
+        Returns:
+            Dict: Статистика по внешним сигналам
+        """
+        if not external_signals:
+            return {}
+        
+        try:
+            # Группируем сигналы по активам
+            by_symbol = {}
+            by_type = {'CALL': 0, 'PUT': 0}
+            
+            for signal in external_signals:
+                symbol = signal.get('symbol', 'UNKNOWN')
+                signal_type = signal.get('signal_type', 'UNKNOWN')
+                
+                if symbol not in by_symbol:
+                    by_symbol[symbol] = {'CALL': 0, 'PUT': 0}
+                
+                by_symbol[symbol][signal_type] = by_symbol[symbol].get(signal_type, 0) + 1
+                by_type[signal_type] = by_type.get(signal_type, 0) + 1
+            
+            logger.info(f"📊 Анализ внешних сигналов: {by_type}")
+            
+            return {
+                'total': len(external_signals),
+                'by_symbol': by_symbol,
+                'by_type': by_type
+            }
+        
+        except Exception as e:
+            logger.error(f"❌ Ошибка анализа внешних сигналов: {e}")
+            return {}
+    
+    # ========================================
     # БЕСКОНЕЧНЫЙ ЦИКЛ АНАЛИЗА
     # ========================================
     
     async def run_analysis_cycle(self):
         """
         Бесконечный цикл аналитики рынка
+        Использует как собственный анализ, так и внешние сигналы для обучения
         Вызывается из main.py через asyncio.gather
         """
         logger.info("🔍 Запуск бесконечного цикла аналитики...")
+        logger.info("📊 Режим: собственный анализ + обучение на внешних сигналах")
         
         iteration = 0
         
@@ -304,6 +374,12 @@ class AICore:
             try:
                 iteration += 1
                 logger.info(f"📊 Итерация анализа #{iteration}")
+                
+                # Получаем внешние сигналы для анализа
+                external_signals = await self.get_external_signals()
+                if external_signals:
+                    external_stats = self.analyze_external_signals(external_signals)
+                    logger.info(f"📈 Внешние сигналы: {external_stats.get('total', 0)}")
                 
                 # Анализируем каждый актив
                 signals_generated = 0
@@ -318,10 +394,13 @@ class AICore:
                     # Рассчитываем индикаторы
                     df = self.calculate_indicators(df)
                     
-                    # Генерируем сигнал
+                    # Генерируем сигнал на основе технического анализа
                     signal = self.generate_signal(df, symbol)
                     
                     if signal and self.db_manager:
+                        # Помечаем как сигнал от AI Core
+                        signal['source'] = 'ai_core'
+                        
                         # Сохраняем в БД
                         self.db_manager.add_signal(signal)
                         signals_generated += 1
@@ -329,7 +408,7 @@ class AICore:
                     # Небольшая задержка между активами
                     await asyncio.sleep(1)
                 
-                logger.info(f"✅ Итерация #{iteration} завершена. Сигналов: {signals_generated}")
+                logger.info(f"✅ Итерация #{iteration} завершена. Сигналов сгенерировано: {signals_generated}")
                 
                 # Ждем до следующей итерации
                 await asyncio.sleep(self.analysis_interval)
