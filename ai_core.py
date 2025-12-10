@@ -16,8 +16,16 @@ import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any
-import pandas as pd
-import numpy as np
+
+# Pandas и NumPy - опциональные (для облегченных версий)
+try:
+    import pandas as pd
+    import numpy as np
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+    pd = None
+    np = None
 
 # Технический анализ
 try:
@@ -85,7 +93,7 @@ class AICore:
     # ПОЛУЧЕНИЕ РЫНОЧНЫХ ДАННЫХ
     # ========================================
     
-    def get_market_data(self, symbol: str, period: str = '1d', interval: str = '5m') -> Optional[pd.DataFrame]:
+    def get_market_data(self, symbol: str, period: str = '1d', interval: str = '5m') -> Optional[Dict]:
         """
         Получить рыночные данные через yfinance
         
@@ -95,10 +103,14 @@ class AICore:
             interval: Интервал ('1m', '5m', '15m', '1h', etc.)
         
         Returns:
-            pd.DataFrame: DataFrame с ценовыми данными или None
+            pd.DataFrame или Dict: DataFrame с ценовыми данными или None
         """
         if not YFINANCE_AVAILABLE:
-            logger.warning("⚠️ yfinance не установлен")
+            logger.warning("⚠️ yfinance не установлен - рыночные данные недоступны")
+            return None
+        
+        if not PANDAS_AVAILABLE:
+            logger.warning("⚠️ pandas не установлен - анализ данных ограничен")
             return None
         
         try:
@@ -120,7 +132,7 @@ class AICore:
     # ТЕХНИЧЕСКИЙ АНАЛИЗ
     # ========================================
     
-    def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+    def calculate_indicators(self, df):
         """
         Рассчитать технические индикаторы
         
@@ -128,8 +140,12 @@ class AICore:
             df: DataFrame с ценовыми данными
         
         Returns:
-            pd.DataFrame: DataFrame с добавленными индикаторами
+            DataFrame с добавленными индикаторами
         """
+        if not PANDAS_AVAILABLE:
+            logger.warning("⚠️ pandas не установлен - технический анализ недоступен")
+            return df
+        
         if not TA_AVAILABLE:
             logger.warning("⚠️ Библиотека ta не установлена, технический анализ ограничен")
             return df
@@ -166,7 +182,7 @@ class AICore:
             logger.error(f"❌ Ошибка расчета индикаторов: {e}")
             return df
     
-    def generate_signal(self, df: pd.DataFrame, symbol: str) -> Optional[Dict[str, Any]]:
+    def generate_signal(self, df, symbol: str) -> Optional[Dict[str, Any]]:
         """
         Генерирует торговый сигнал на основе технического анализа
         
@@ -177,7 +193,11 @@ class AICore:
         Returns:
             Dict: Торговый сигнал или None
         """
-        if df.empty or len(df) < 2:
+        if not PANDAS_AVAILABLE:
+            logger.warning("⚠️ pandas не установлен - генерация сигналов недоступна")
+            return None
+        
+        if df is None or df.empty or len(df) < 2:
             return None
         
         try:
@@ -190,7 +210,7 @@ class AICore:
             reasons = []
             
             # Анализ RSI
-            if 'RSI' in last and not pd.isna(last['RSI']):
+            if 'RSI' in last and not (pd and pd.isna(last['RSI'])):
                 if last['RSI'] < 30:
                     signal_type = 'CALL'
                     confidence += 20
@@ -201,7 +221,7 @@ class AICore:
                     reasons.append(f"RSI перекуплен ({last['RSI']:.1f})")
             
             # Анализ MACD
-            if 'MACD_diff' in last and not pd.isna(last['MACD_diff']):
+            if 'MACD_diff' in last and not (pd and pd.isna(last['MACD_diff'])):
                 if last['MACD_diff'] > 0 and prev['MACD_diff'] < 0:
                     if signal_type != 'PUT':
                         signal_type = 'CALL'
@@ -215,12 +235,12 @@ class AICore:
             
             # Анализ Bollinger Bands
             if all(k in last for k in ['BB_upper', 'BB_lower']):
-                if not pd.isna(last['BB_lower']) and last['Close'] < last['BB_lower']:
+                if not (pd and pd.isna(last['BB_lower'])) and last['Close'] < last['BB_lower']:
                     if signal_type != 'PUT':
                         signal_type = 'CALL'
                         confidence += 15
                         reasons.append("Цена ниже нижней полосы Боллинджера")
-                elif not pd.isna(last['BB_upper']) and last['Close'] > last['BB_upper']:
+                elif not (pd and pd.isna(last['BB_upper'])) and last['Close'] > last['BB_upper']:
                     if signal_type != 'CALL':
                         signal_type = 'PUT'
                         confidence += 15

@@ -1,0 +1,141 @@
+# ======================================
+# REQUIREMENTS.TXT - Монолитный сервис
+# Версия: 1.0
+# Дата: 2025-12-09
+# ======================================
+
+# ============ CORE DEPENDENCIES ============
+
+# Python Telegram Bot API (v20+)
+python-telegram-bot==20.7
+
+# Supabase клиент для БД
+supabase==2.3.1
+
+# Переменные окружения
+python-dotenv==1.0.0
+
+# Асинхронный HTTP клиент
+aiohttp==3.9.1
+
+# Requests для синхронных HTTP запросов
+requests==2.31.0
+
+
+# ============ AI & LLM ============
+
+# Anthropic Claude API (для LLM-чата с админами)
+anthropic==0.34.0
+
+# OpenAI API (опционально, если нужен GPT)
+openai==1.3.5
+
+
+# ============ DATA & ANALYTICS ============
+
+# Pandas для работы с данными
+pandas==2.1.4
+
+# NumPy для численных расчетов
+numpy==1.26.2
+
+# Matplotlib для графиков
+matplotlib==3.8.2
+
+# Pillow для работы с изображениями
+Pillow==10.1.0
+
+# yfinance для получения рыночных данных
+yfinance==0.2.32
+
+
+# ============ TRADING & MARKET DATA ============
+
+# TA-Lib альтернатива для технического анализа
+ta==0.11.0
+
+# WebSockets для real-time данных
+websockets==12.0
+
+# CCXT для подключения к биржам (опционально)
+ccxt==4.1.80
+
+
+# ============ CRYPTOGRAPHY & SECURITY ============
+
+# Cryptography для шифрования SSID
+cryptography==41.0.7
+
+# PyJWT для работы с токенами
+PyJWT==2.8.0
+
+# BCrypt для хэширования паролей
+bcrypt==4.1.1
+
+
+# ============ WEB FRAMEWORK (для webhook сервера) ============
+
+# Flask для webhook endpoints
+Flask==3.0.0
+
+# Flask-CORS для CORS
+flask-cors==4.0.0
+
+
+# ============ TELEGRAM CLIENT (удалено) ============
+# Парсинг Telegram вынесен на отдельный хостинг
+# Сигналы поступают в БД от внешнего парсера
+
+
+# ============ DATABASE & ORM ============
+
+# SQLAlchemy (если нужна ORM)
+sqlalchemy==2.0.23
+
+# psycopg2 для PostgreSQL (используется Supabase)
+psycopg2-binary==2.9.9
+
+
+# ============ UTILITIES ============
+
+# python-dateutil для работы с датами
+python-dateutil==2.8.2
+
+# pytz для работы с часовыми поясами
+pytz==2023.3.post1
+
+# schedule для планирования задач (опционально)
+schedule==1.2.0
+
+
+# ============ TESTING & DEVELOPMENT ============
+
+# pytest для тестирования
+pytest==7.4.3
+
+# pytest-asyncio для асинхронных тестов
+pytest-asyncio==0.21.1
+
+
+# ============ LOGGING & MONITORING ============
+
+# colorlog для цветного логирования
+colorlog==6.8.0
+
+
+# ============ POCKET OPTION SPECIFIC ============
+
+# Selenium для автоматизации браузера (SSID extraction)
+selenium==4.15.2
+
+# WebDriver Manager
+webdriver-manager==4.0.1
+
+
+# ============ ADDITIONAL ============
+
+# aiofiles для асинхронной работы с файлами
+aiofiles==23.2.1
+
+# ujson для быстрого JSON парсинга
+ujson==5.9.0
