@@ -235,18 +235,23 @@ async def main_async():
     logger.info("=" * 60)
     
     try:
-        # Запускаем три потока параллельно через asyncio.gather
+        # Инициализация приложения
+        await app.initialize()
+        await app.start()
+        
+        # Запуск polling в отдельной задаче
+        updater = app.updater
+        await updater.start_polling(
+            allowed_updates=['message', 'callback_query'],
+            drop_pending_updates=True
+        )
+        
+        # Запускаем параллельно AI Core и AutoTrader
         await asyncio.gather(
-            # Поток 1: Telegram Bot UI (polling)
-            app.run_polling(
-                allowed_updates=['message', 'callback_query'],
-                drop_pending_updates=True
-            ),
-            
-            # Поток 2: AI Core (аналитика рынка)
+            # Поток 1: AI Core (аналитика рынка)
             ai_core.run_analysis_cycle(),
             
-            # Поток 3: AutoTrader (торговля на основе сигналов из БД)
+            # Поток 2: AutoTrader (торговля на основе сигналов из БД)
             autotrader.run_autotrade_cycle(),
             
             return_exceptions=True
@@ -260,6 +265,13 @@ async def main_async():
     
     finally:
         logger.info("🛑 Остановка сервиса...")
+        try:
+            if app.updater and app.updater.running:
+                await app.updater.stop()
+            await app.stop()
+            await app.shutdown()
+        except Exception as e:
+            logger.error(f"❌ Ошибка при остановке: {e}")
         logger.info("=" * 60)
         logger.info("👋 СЕРВИС ОСТАНОВЛЕН")
         logger.info("=" * 60)
