@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
 main.py - Точка входа монолитного сервиса
-Версия: 1.0
-Дата: 2025-12-09
+Версия: 2.0
+Дата: 2025-12-10
 
 Координирует:
 - Telegram Bot UI (polling)
 - AI Core (аналитика рынка)
-- AutoTrader (торговля + парсинг TG)
+- AutoTrader (торговля на основе сигналов из БД)
 """
 
 import os
@@ -80,7 +80,7 @@ def init_components():
     logger.info("🤖 Инициализация AI Core...")
     ai_core = AICore(db_manager=db_manager)
     
-    # 4. AutoTrader (торговля + парсинг TG)
+    # 4. AutoTrader (торговля на основе сигналов из БД)
     logger.info("🔄 Инициализация AutoTrader...")
     autotrader = AutoTrader(db_manager=db_manager, pocket_api=pocket_api)
     
@@ -200,7 +200,7 @@ async def main_async():
     Запускает три параллельных потока:
     1. Telegram Bot UI (polling)
     2. AI Core (аналитика рынка)
-    3. AutoTrader (торговля + парсинг TG)
+    3. AutoTrader (торговля на основе сигналов из БД)
     """
     logger.info("=" * 60)
     logger.info("🚀 ЗАПУСК МОНОЛИТНОГО СЕРВИСА")
@@ -246,8 +246,8 @@ async def main_async():
             # Поток 2: AI Core (аналитика рынка)
             ai_core.run_analysis_cycle(),
             
-            # Поток 3: AutoTrader (торговля + парсинг TG)
-            autotrader.run_autotrade_and_parser(),
+            # Поток 3: AutoTrader (торговля на основе сигналов из БД)
+            autotrader.run_autotrade_cycle(),
             
             return_exceptions=True
         )
