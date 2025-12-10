@@ -42,19 +42,89 @@ venv.bak/
 .env.local
 .env.*.local
 
+# Logs
+*.log
+logs/
+bot.log
+
 # Database
 *.db
 *.sqlite
 *.sqlite3
 
-# Logs
-*.log
-logs/
+# Telethon sessions (if parser is separate)
+*.session
+*.session-journal
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Project specific
-received_signals.json
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Archive
+.archive/
+
+# Screenshots and assets
+attached_assets/
+screenshots/
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Zip files
+*.zip
+*.tar.gz
+*.rar
+
+# Bot specific
+ssid_automation/
+autotrader_session*
+
+# Docker
+.dockerignore
+
+# Coverage
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Documentation (keep only main README)
+CHANGELOG*.md
+DEPLOYMENT*.md
+STRATEGY*.md
+PROJECT_INFO*.md
+QUICKSTART*.md
+FINAL*.md
+TASK*.md
+BOT_PROMPT*.md
+*_ОТЧЕТ.md
+*_ДЕПЛОЙ.md
+*_ПРОБЛЕМЫ.md
+ЧЕКЛИСТ*.md
+СРОЧНО*.md
+
+# Old scripts
+reset_*.py
+full_reset_*.py
+bot_backup.py
+run_bot.py
+check_*.py
 crypto_signals_bot.db
