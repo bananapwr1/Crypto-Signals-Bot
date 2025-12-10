@@ -75,4 +75,4 @@ RUN google-chrome --version
 EXPOSE 8080
 
 # Запуск бота
-CMD ["python", "run_bot.py"]
+CMD ["python", "main.py"]
